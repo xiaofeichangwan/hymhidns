@@ -586,9 +586,14 @@
       <div class="pagehead"><h1>设置</h1></div>
       <section class="panel setrows" id="setRows"></section>
       <button type="button" class="savebtn" id="btnSaveSettings">保存设置</button>
+      <button type="button" class="btn" id="btnResetSettings" style="width:100%;min-height:46px;margin-top:12px">恢复默认设置</button>
+      <section class="panel principle">
+        <h2>设置保存在哪里</h2>
+        <p>设置、总览的优选参数、地区选择和排序选择，都会保存在这台设备的浏览器里（localStorage），改完即存，刷新页面、关掉再打开都会自动恢复，不用重新改。历史记录只保留最近 8 次、资产收藏最多存 200 条，避免存太多拖慢页面。注意：这些数据只存在本机浏览器里，换设备、换浏览器，或者清掉浏览器缓存 / 站点数据，就会丢失，需要重新设置。</p>
+      </section>
       <section class="panel principle">
         <h2>测速原理</h2>
-        <p>点「开始优选」后，测速在你这台手机/电脑的浏览器里跑：对每个候选 IP 发起一次 HTTPS 请求并计时，所以测出来的是你本地网络的真实相对延迟。第一轮按筛选并发快速过一遍；精测名单按地区取前几名再补全局最快的若干个，每 IP 共测 3 次取中位数，并用样本极差算抖动。综合质量分 = 中位延迟 + 抖动 × 0.5。浏览器受证书/SNI 限制读不到逐 IP 的落地节点（colo），地区来自各来源的 #标注；也做不了逐 IP 下载测速，总览的「线路测速」是整条线路经 Cloudflare 官方测速端点的实测下载和上传速度。测速时别开代理/VPN，否则测的是代理线路。这个静态版没有后台，历史、资产和设置只留在本次打开期间，刷新或关闭页面后清空。</p>
+        <p>点「开始优选」后，测速在你这台手机/电脑的浏览器里跑：对每个候选 IP 发起一次 HTTPS 请求并计时，所以测出来的是你本地网络的真实相对延迟。第一轮按筛选并发快速过一遍；精测名单按地区取前几名再补全局最快的若干个，每 IP 共测 3 次取中位数，并用样本极差算抖动。综合质量分 = 中位延迟 + 抖动 × 0.5。浏览器受证书/SNI 限制读不到逐 IP 的落地节点（colo），地区来自各来源的 #标注；也做不了逐 IP 下载测速，总览的「线路测速」是整条线路经 Cloudflare 官方测速端点的实测下载和上传速度。测速时别开代理/VPN，否则测的是代理线路。这个静态版没有后台，设置、历史和资产保存在本机浏览器的 localStorage 里，刷新或关闭后重新打开会自动恢复（历史只保留最近 8 次）；换设备、换浏览器或清掉浏览器数据就会丢失。</p>
       </section>
     </div>
 
@@ -790,6 +795,130 @@ var pxTesting = false, pxTestDone = 0, pxTestTotal = 0, pxAbort = null;
 var pxNotice = null, pxLoading = false, pxFetchedOnce = false;
 var pasteDraft = "", urlDraft = "";
 
+/* ================= 本地保存（localStorage） =================
+   设置、优选参数、地区/排序选择、历史（最近 8 次）、资产（最多 200 条）都存本机浏览器，
+   刷新/关闭重开自动恢复；换设备、换浏览器、清缓存会丢。沙箱里 localStorage 不可用时静默降级为不保存。 */
+var LS_KEY = "youxuan-static-v1";
+var HISTORY_KEEP = 8, HISTORY_SNAP_KEEP = 200, ASSETS_KEEP = 200;
+var saveTimer = null;
+function lsGet(){
+  try{
+    var raw = localStorage.getItem(LS_KEY);
+    if(!raw) return null;
+    var d = JSON.parse(raw);
+    return (d && typeof d==="object")? d : null;
+  }catch(e){ return null; }
+}
+function collectState(){
+  return {
+    v:1,
+    params:{
+      keep:+$("keepPer").value, port:+$("portSel").value,
+      fc:+$("filterConc").value, rc:+$("refineConc").value, top:+$("refineTop").value,
+      tmo:+$("timeoutSel").value, cap:+$("latCap").value,
+      range:$("rangeSpec").value, sample:sampleCount
+    },
+    regions:Array.from(selectedRegions),
+    sortMode:sortMode,
+    expSel:Array.from(exportRegionSel),
+    exp:{format:$("expFormat").value, per:+$("expPer").value, cap:$("expCap").value, remark:$("expRemark").value},
+    px:{size:pxSize, sort:pxSort, tls:pxOnlyTls, pageSize:pxPageSize},
+    assets:assets.slice(0, ASSETS_KEEP).map(function(a){
+      return {ip:a.ip, note:a.note||"", best:(a.best==null? null : a.best), at:(a.at instanceof Date? a.at.toISOString() : a.at)};
+    }),
+    runs:runs.slice(0, HISTORY_KEEP).map(function(r){
+      return {id:r.id, at:(r.at instanceof Date? r.at.toISOString() : r.at), total:r.total, alive:r.alive, fc:r.fc, top:r.top,
+        snapshot:(r.snapshot||[]).slice(0, HISTORY_SNAP_KEEP).map(function(x){
+          return {ip:x.ip, region:x.region||null, ok:!!x.ok, avg:(x.avg==null? null : x.avg), samples:x.samples||[]};
+        })};
+    })
+  };
+}
+function writeState(){
+  try{ localStorage.setItem(LS_KEY, JSON.stringify(collectState())); }
+  catch(e){
+    /* 配额不够：先把历史砍到最近 3 次再重试一次，还不行就放弃这次保存，不影响页面使用 */
+    try{
+      var d=collectState(); d.runs=d.runs.slice(0,3);
+      localStorage.setItem(LS_KEY, JSON.stringify(d));
+    }catch(e2){}
+  }
+}
+function saveState(){
+  if(saveTimer) clearTimeout(saveTimer);
+  saveTimer=setTimeout(function(){ saveTimer=null; writeState(); }, 200);
+}
+function flushState(){
+  if(saveTimer){ clearTimeout(saveTimer); saveTimer=null; writeState(); }
+}
+window.addEventListener("beforeunload", flushState);
+document.addEventListener("visibilitychange", function(){ if(document.hidden) flushState(); });
+function loadState(){
+  var d=lsGet();
+  if(!d) return;
+  var p=d.params||{};
+  if(p.fc!=null && !isNaN(+p.fc)) $("filterConc").value=+p.fc;
+  if(p.rc!=null && !isNaN(+p.rc)) $("refineConc").value=+p.rc;
+  if(p.top!=null && !isNaN(+p.top)) $("refineTop").value=+p.top;
+  if(p.keep!=null) setSelectValue($("keepPer"), +p.keep);
+  if(p.port!=null){ setSelectValue($("portSel"), +p.port); $("expPort").value=$("portSel").value; }
+  if(p.tmo!=null) setSelectValue($("timeoutSel"), +p.tmo);
+  if(p.cap!=null) setSelectValue($("latCap"), +p.cap);
+  if(typeof p.range==="string") $("rangeSpec").value=p.range;
+  if(p.sample!=null && !isNaN(+p.sample)) sampleCount=Math.min(2000, Math.max(1, Math.round(+p.sample)||100));
+  var validCodes={}; REGIONS.forEach(function(r){ validCodes[r.code]=true; });
+  if(Array.isArray(d.regions)){
+    var sel=d.regions.filter(function(c){ return validCodes[c]; });
+    if(sel.length) selectedRegions=new Set(sel);
+  }
+  if(d.sortMode==="quality" || d.sortMode==="latency" || d.sortMode==="stable") sortMode=d.sortMode;
+  if(Array.isArray(d.expSel)){
+    var esel=d.expSel.filter(function(c){ return validCodes[c]; });
+    if(esel.length) exportRegionSel=new Set(esel);
+  }
+  var ex=d.exp||{};
+  if(ex.format==="txt" || ex.format==="csv") $("expFormat").value=ex.format;
+  if(ex.per!=null) setSelectValue($("expPer"), +ex.per);
+  if(typeof ex.cap==="string") $("expCap").value=ex.cap;
+  if(ex.remark==="region" || ex.remark==="latency" || ex.remark==="both") $("expRemark").value=ex.remark;
+  var px=d.px||{};
+  if(px.size===200 || px.size===500 || px.size===1000) pxSize=px.size;
+  if(px.sort==="score" || px.sort==="tcp" || px.sort==="speed" || px.sort==="local") pxSort=px.sort;
+  if(typeof px.tls==="boolean") pxOnlyTls=px.tls;
+  if(px.pageSize===50 || px.pageSize===100 || px.pageSize===200) pxPageSize=px.pageSize;
+  if(Array.isArray(d.assets)){
+    assets=d.assets.filter(function(a){ return a && typeof a.ip==="string" && isIPv4(a.ip); }).slice(0, ASSETS_KEEP).map(function(a){
+      return {ip:a.ip, note:(typeof a.note==="string"? a.note : ""), best:(typeof a.best==="number"? a.best : null), at:(a.at? new Date(a.at) : new Date())};
+    });
+  }
+  if(Array.isArray(d.runs)){
+    runs=d.runs.filter(function(r){ return r && typeof r==="object"; }).slice(0, HISTORY_KEEP).map(function(r){
+      return {id:(typeof r.id==="number"? r.id : Date.now()), at:(r.at? new Date(r.at) : new Date()),
+        total:r.total||0, alive:r.alive||0, fc:r.fc||0, top:r.top||0,
+        snapshot:Array.isArray(r.snapshot)? r.snapshot : []};
+    });
+  }
+}
+function resetDefaults(){
+  try{ localStorage.removeItem(LS_KEY); }catch(e){}
+  setSelectValue($("keepPer"), 20);
+  setSelectValue($("portSel"), 443); $("expPort").value="443";
+  $("filterConc").value=20; $("refineConc").value=5; $("refineTop").value=20;
+  setSelectValue($("timeoutSel"), 3000);
+  setSelectValue($("latCap"), 0);
+  $("rangeSpec").value="";
+  sampleCount=100;
+  selectedRegions=new Set(REGIONS.map(function(r){ return r.code; }));
+  exportRegionSel=new Set(REGIONS.map(function(r){ return r.code; }));
+  sortMode="quality"; resultFilter="ALL";
+  $("expFormat").value="txt"; setSelectValue($("expPer"), 20); $("expCap").value=""; $("expRemark").value="region";
+  pxSize=500; pxSort="score"; pxOnlyTls=false; pxPageSize=100; pxPage=1;
+  syncSettingsInputs();
+  renderAll();
+  saveState();
+  toast("已恢复默认设置");
+}
+
 /* ================= 工具 ================= */
 function $(id){ return document.getElementById(id); }
 function esc(s){ return String(s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];}); }
@@ -924,7 +1053,7 @@ function flagImg(code, w, h){
   var cc = code ? String(code).toUpperCase() : "";
   if(cc==="UK") cc="GB";
   if(cc && FLAG_FILES[cc.toLowerCase()]){
-    return '<img src="'+(FLAG_DATA[cc.toLowerCase()])+'" alt="'+esc(regionName(cc))+'旗帜" width="'+w+'" height="'+h+'" loading="lazy" decoding="async" style="width:'+w+'px;height:'+h+'px" onerror="this.onerror=null;this.style.display=\'none\';" />';
+    return '<img src="'+(FLAG_DATA[cc.toLowerCase()]||'')+'" alt="'+esc(regionName(cc))+'旗帜" width="'+w+'" height="'+h+'" loading="lazy" decoding="async" style="width:'+w+'px;height:'+h+'px" onerror="this.onerror=null;this.style.display=\'none\';" />';
   }
   return '<span class="flagfb" style="width:'+w+'px;height:'+h+'px" aria-hidden="true">'+svgIcon(GLOBE_PATHS, Math.max(h-3,8))+"</span>";
 }
@@ -1133,6 +1262,7 @@ function renderRegions(){
     b.addEventListener("click",function(){
       var code=b.getAttribute("data-region");
       if(selectedRegions.has(code)) selectedRegions.delete(code); else selectedRegions.add(code);
+      saveState();
       renderRegions(); renderProgRegions(); renderRanking();
     });
   });
@@ -1566,6 +1696,8 @@ function runTest(){
     phase="done";
     runMeta={total:targets.length, at:new Date().toISOString()};
     runs.unshift({id:Date.now(), at:new Date(), total:targets.length, alive:aliveCount, fc:fc, top:top, snapshot:finalResults.slice(0,2000)});
+    if(runs.length>20) runs.length=20;
+    saveState();
     renderAll();
   });
 }
@@ -2105,6 +2237,7 @@ function renderExport(){
     b.addEventListener("click",function(){
       var code=b.getAttribute("data-e");
       if(exportRegionSel.has(code)) exportRegionSel.delete(code); else exportRegionSel.add(code);
+      saveState();
       renderExport();
     });
   });
@@ -2124,6 +2257,7 @@ function toggleSave(ip, region, lat){
     assets.unshift({ip:ip, note:region? regionName(region):"", best:(lat!=null&&!isNaN(lat))?lat:null, at:new Date()});
     toast("已收藏 "+ip);
   }
+  saveState();
   renderAssets(); renderRanking(); renderHistory(); renderProxy();
 }
 function renderAssets(){
@@ -2153,6 +2287,7 @@ function renderAssets(){
       var ip=b.getAttribute("data-adel");
       assets=assets.filter(function(a){return a.ip!==ip;});
       if(editingAssetIp===ip) editingAssetIp=null;
+      saveState();
       renderAssets(); renderRanking(); renderHistory();
     });
   });
@@ -2167,7 +2302,7 @@ function renderAssets(){
       var ip=b.getAttribute("data-notesave");
       var input=$("assetList").querySelector('[data-noteinput="'+ip+'"]');
       assets.forEach(function(a){ if(a.ip===ip) a.note=input?input.value.trim():""; });
-      editingAssetIp=null; renderAssets();
+      editingAssetIp=null; saveState(); renderAssets();
     });
   });
 }
@@ -2202,6 +2337,7 @@ function renderHistory(){
       var id=+b.getAttribute("data-rundel");
       runs=runs.filter(function(r){return r.id!==id;});
       if(openRunId===id) openRunId=null;
+      saveState();
       renderHistory();
     });
   });
@@ -2266,13 +2402,14 @@ $("btnRun").addEventListener("click", runTest);
 $("btnLine").addEventListener("click", lineTest);
 $("btnAllRegions").addEventListener("click", function(){
   REGIONS.forEach(function(r){ selectedRegions.add(r.code); });
+  saveState();
   renderRegions(); renderProgRegions(); renderRanking();
 });
 $("btnClearLog").addEventListener("click", function(){ $("logBox").innerHTML='<div class="emptylog">暂无日志。拉取来源、开始优选后这里会实时滚动。</div>'; });
 $("btnClearPool").addEventListener("click", clearPool);
-$("pxSize").addEventListener("change", function(){ pxSize=+this.value; });
-$("pxSort").addEventListener("change", function(){ pxSort=this.value; pxPage=1; renderProxy(); });
-$("pxTlsToggle").addEventListener("click", function(){ pxOnlyTls=!pxOnlyTls; pxPage=1; renderProxy(); });
+$("pxSize").addEventListener("change", function(){ pxSize=+this.value; saveState(); });
+$("pxSort").addEventListener("change", function(){ pxSort=this.value; pxPage=1; saveState(); renderProxy(); });
+$("pxTlsToggle").addEventListener("click", function(){ pxOnlyTls=!pxOnlyTls; pxPage=1; saveState(); renderProxy(); });
 $("pxFetch").addEventListener("click", function(){ pxFetchedOnce=true; fetchProxyBoard(); });
 $("pxTest").addEventListener("click", pxRunLocalTest);
 $("pxCopyAll").addEventListener("click", function(){
@@ -2284,7 +2421,7 @@ $("pxDownload").addEventListener("click", function(){
   downloadTextFile("proxyip-list.txt", pxListText(list)).then(function(via){ toast(downloadToast(via, list.length)); });
 });
 $("pxAddPool").addEventListener("click", pxAddAllToPool);
-$("pxPageSize").addEventListener("change", function(){ pxPageSize=+this.value; pxPage=1; renderProxy(); });
+$("pxPageSize").addEventListener("change", function(){ pxPageSize=+this.value; pxPage=1; saveState(); renderProxy(); });
 $("pxPrev").addEventListener("click", function(){ if(pxPage>1){ pxPage--; renderProxy(); } });
 $("pxNext").addEventListener("click", function(){
   var pageCount=Math.max(1, Math.ceil(pxFiltered().length/pxPageSize));
@@ -2310,12 +2447,20 @@ $("poolText").addEventListener("input", function(){
   renderSources(); renderRegions(); renderStats(); renderCharts(); renderProgRegions(); renderProgress(); renderRanking(); renderExport();
 });
 $("sortSeg").querySelectorAll("button").forEach(function(b){
-  b.addEventListener("click", function(){ sortMode=b.getAttribute("data-mode"); renderRanking(); });
+  b.addEventListener("click", function(){ sortMode=b.getAttribute("data-mode"); saveState(); renderRanking(); });
 });
 $("keepPer").addEventListener("change", function(){ syncSettingsInputs(); renderStats(); renderCharts(); renderProgRegions(); renderRanking(); renderRegions(); });
 $("latCap").addEventListener("change", function(){ syncSettingsInputs(); renderStats(); renderRanking(); });
 $("portSel").addEventListener("change", function(){ syncSettingsInputs(); $("expPort").value=this.value; renderExport(); });
 ["filterConc","refineConc","refineTop","timeoutSel"].forEach(function(id){ $(id).addEventListener("change", syncSettingsInputs); });
+/* 优选参数改动即存本地（刷新/重开自动恢复） */
+["keepPer","portSel","filterConc","refineConc","refineTop","timeoutSel","latCap","rangeSpec"].forEach(function(id){
+  $(id).addEventListener("change", saveState);
+  $(id).addEventListener("input", saveState);
+});
+["expFormat","expPer","expRemark"].forEach(function(id){ $(id).addEventListener("change", saveState); });
+$("expCap").addEventListener("input", saveState);
+$("expPort").addEventListener("change", saveState);
 ["expFormat","expPer","expRemark"].forEach(function(id){ $(id).addEventListener("change", renderExport); });
 $("expCap").addEventListener("input", renderExport);
 $("expPort").addEventListener("change", function(){ $("portSel").value=this.value; syncSettingsInputs(); renderExport(); });
@@ -2351,11 +2496,12 @@ $("btnSaveAssets").addEventListener("click", function(){
       added++;
     }
   });
+  saveState();
   renderAssets();
   var n=$("expNotice"); n.textContent="已存入资产 "+added+" 个"; n.classList.remove("hidden");
   toast("已存入资产 "+added+" 个");
 });
-$("btnClearHistory").addEventListener("click", function(){ runs=[]; openRunId=null; renderHistory(); });
+$("btnClearHistory").addEventListener("click", function(){ runs=[]; openRunId=null; saveState(); renderHistory(); });
 $("btnAddAsset").addEventListener("click", function(){
   var ip=$("assetIp").value.trim();
   var err=$("assetError");
@@ -2364,6 +2510,7 @@ $("btnAddAsset").addEventListener("click", function(){
   if(isSaved(ip)){ toast("这个 IP 已经在资产里了"); return; }
   assets.unshift({ip:ip, note:$("assetNote").value.trim(), best:null, at:new Date()});
   $("assetIp").value=""; $("assetNote").value="";
+  saveState();
   renderAssets(); renderRanking(); renderHistory();
 });
 $("btnCopyAssets").addEventListener("click", function(){
@@ -2371,13 +2518,15 @@ $("btnCopyAssets").addEventListener("click", function(){
   copyText(assets.map(function(a){return a.ip;}).join("\n")).then(function(ok){ toast(ok? "已复制全部资产 IP" : "复制失败，请逐个复制"); });
 });
 $("btnSaveSettings").addEventListener("click", function(){
-  applySettings(); syncSettingsInputs();
+  applySettings(); syncSettingsInputs(); saveState();
   if(srcPanel==="cloudflare" || srcPanel==="cm") renderSources();
   var b=this; b.textContent="已保存";
   setTimeout(function(){ b.textContent="保存设置"; }, 2000);
 });
+$("btnResetSettings").addEventListener("click", resetDefaults);
 
 /* ================= 初始化 ================= */
+loadState();
 buildSettings();
 setRunBtn();
 updateOnline();
