@@ -141,6 +141,9 @@
   .chart{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
   .chart h3{margin:0;font-size:14px;font-weight:500}
   .chart .cempty{padding:24px 0;text-align:center;color:var(--dim);font-size:14px}
+  .chart .chartnote{margin:6px 0 2px;font-size:12px;color:var(--dim);line-height:1.6}
+  .bar-row.nodata .bar-track{background:transparent;border:1px dashed var(--border)}
+  .bar-row.nodata .num{color:var(--dim)}
   .bar-row{display:flex;align-items:center;gap:8px;margin-top:10px}
   .bar-row .who{display:flex;width:92px;flex:none;align-items:center;gap:6px;font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden}
   .bar-row .who img{width:22px;height:15px;object-fit:contain;display:block;border-radius:2px;background:rgba(255,255,255,.07)}
@@ -226,6 +229,7 @@
   .rlist .ipline{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .rlist .ip{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:15px;word-break:break-all}
   .rtag{display:inline-flex;align-items:center;gap:4px;border-radius:6px;background:var(--surface-3);padding:2px 6px;font-size:11px;font-weight:500;color:var(--dim);flex:none}
+  .rtag.geo{background:transparent;border:1px dashed var(--border);color:var(--text)}
   .rtag img{width:18px;height:12px;object-fit:contain;display:block;border-radius:2px}
   .dltag{display:inline-flex;align-items:center;border-radius:6px;background:var(--surface-2);padding:2px 6px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;font-weight:600;color:var(--text);flex:none;white-space:nowrap}
   .dltag.line{color:var(--dim);font-weight:500}
@@ -258,6 +262,8 @@
   .expchip img{width:22px;height:15px;object-fit:contain;display:block;border-radius:2px;background:rgba(255,255,255,.07)}
   .expchip.on{border-color:var(--accent);background:var(--surface-3)}
   .expchip.static{color:var(--dim);cursor:default}
+  .expchip:has(input:checked){border-color:var(--accent);background:var(--surface-3)}
+  .expchip input{accent-color:var(--accent);width:16px;height:16px;margin:0}
   .expbtns{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
   .notice{margin:12px 0 0;font-size:14px;color:var(--dim)}
 
@@ -342,7 +348,7 @@
       <section class="panel">
         <div class="panelhead">
           <h2>选择优选地区</h2>
-          <span class="note">地区按来源标注；未标注的归入「未知地区」始终保留</span>
+          <span class="note">地区按来源标注；未标注的归入「未知地区」始终保留，优选完成后自动查归属地并在结果行内标注</span>
           <span class="right">
             <span class="cnt" id="regionEnabledNote">7/7 个地区已启用</span>
             <button type="button" class="linkbtn" id="btnAllRegions">全部地区</button>
@@ -386,6 +392,8 @@
       <div class="charts">
         <div class="chart"><h3>地区平均延迟</h3><div id="chartLat"><div class="cempty">跑一次优选后显示</div></div></div>
         <div class="chart"><h3>地区存活 IP 数量</h3><div id="chartCnt"><div class="cempty">跑一次优选后显示</div></div></div>
+        <div class="chart"><h3>地区保留 IP 数量</h3><div id="chartKept"><div class="cempty">跑一次优选后显示</div></div></div>
+        <div class="chart"><h3>地区平均下载（保留 IP）</h3><p class="chartnote">按优选结果的地区分组，只统计保留 IP 中在反代榜单（cf.mileet.com）里带服务器端实测下载速度的 IP 并取平均；没有这类数据的地区显示「无数据」。不用线路测速速度代替逐 IP 下载。</p><div id="chartDl"><div class="cempty">跑一次优选后显示</div></div></div>
       </div>
 
       <div class="logprog">
@@ -459,6 +467,7 @@
       </section>
       <div class="charts hidden" id="pxDistWrap">
         <div class="chart"><h3>全球节点分布（按属地）</h3><div id="pxDistChart"></div></div>
+        <div class="chart"><h3>各属地平均下载（榜单来源实测）</h3><div id="pxSpeedChart"></div></div>
         <section class="panel">
           <h2 style="font-size:14px;font-weight:500">按属地筛选（点一下重新拉该属地榜单）</h2>
           <div class="filterchips" id="pxCcChips" style="margin-top:12px"></div>
@@ -502,7 +511,7 @@
       <div class="seg" role="tablist" aria-label="排序方式" id="sortSeg">
         <button type="button" role="tab" data-mode="quality" class="on">综合质量</button>
         <button type="button" role="tab" data-mode="latency">低延迟</button>
-        <button type="button" role="tab" data-mode="stable">稳定优先</button>
+        <button type="button" role="tab" data-mode="speed">高下载</button>
       </div>
       <p class="seghint" id="sortHint">延迟 + 抖动惩罚</p>
       <div class="filterchips" id="resultFilters"></div>
@@ -517,12 +526,12 @@
     <div class="view hidden" id="view-export">
       <div class="pagehead">
         <h1>结果导出</h1>
-        <p>数据源：本轮优选结果。按地区、延迟上限筛完再导出，格式 IP:端口#备注 可直接粘进客户端。</p>
+        <p>数据源：本轮优选结果。按地区、延迟上限、最低下载筛完再导出：IP:端口#备注 可直接粘进客户端；选 v2rayN 格式并粘贴一条你现有的节点链接作模板，可生成能直接导入 v2rayN 的节点链接或 Base64 订阅内容，节点名按识别出的真实城市生成。</p>
       </div>
       <section class="panel">
         <div class="expgrid">
           <div class="field"><label for="expFormat">格式</label>
-            <select id="expFormat"><option value="txt" selected>TXT</option><option value="csv">CSV</option></select></div>
+            <select id="expFormat"><option value="txt" selected>TXT</option><option value="csv">CSV</option><option value="nodes">v2rayN 节点链接</option><option value="sub">v2rayN 订阅（Base64）</option></select></div>
           <div class="field"><label for="expPort">端口</label>
             <select id="expPort"><option selected>443</option><option>8443</option><option>2053</option><option>2083</option><option>2087</option><option>2096</option><option>8880</option><option>80</option></select></div>
           <div class="field"><label for="expPer">每地区最多</label>
@@ -531,6 +540,24 @@
             <input type="text" id="expCap" inputmode="numeric" placeholder="不限" /></div>
           <div class="field"><label for="expRemark">备注内容（TXT）</label>
             <select id="expRemark"><option value="region" selected>地区</option><option value="latency">延迟</option><option value="both">地区 + 延迟</option></select></div>
+          <div class="field"><label for="expMinDl">最低下载速度（Mbps，空 = 不限）</label>
+            <input type="text" id="expMinDl" inputmode="decimal" placeholder="不限" /></div>
+        </div>
+        <div id="expTplWrap" class="hidden" style="margin-top:16px">
+          <div class="field"><label for="expTemplate">节点模板（粘贴一条你现有的节点链接）</label>
+            <input type="text" id="expTemplate" placeholder="vless://… / trojan://… / vmess://…" spellcheck="false" /></div>
+          <p class="sub2">生成时沿用模板的 UUID、传输方式、SNI、路径等参数，只把地址换成优选 IP、端口换成上面的导出端口，节点名按「优选 | 国家城市 | 本地实测延迟」生成（该 IP 在反代榜单里有实测下载时还会带上下载速度）。模板只保存在本机浏览器，不上传。逐 IP 真实下载速度浏览器测不了，名字里不写假速度；导进 v2rayN 后可用它自带的测速看每个节点的真实延迟和速度。</p>
+        </div>
+        <div style="margin-top:16px">
+          <span style="font-size:12px;color:var(--dim)">组合备注（勾选任意一项后，TXT 备注按勾选内容拼，覆盖上面的「备注内容」）</span>
+          <div class="expchips" id="expFields">
+            <label class="expchip"><input type="checkbox" id="expF-city" /> 城市</label>
+            <label class="expchip"><input type="checkbox" id="expF-speed" /> 速度</label>
+            <label class="expchip"><input type="checkbox" id="expF-lat" /> 延迟</label>
+            <label class="expchip"><input type="checkbox" id="expF-colo" /> colo</label>
+            <label class="expchip"><input type="checkbox" id="expF-src" /> 来源</label>
+          </div>
+          <p class="sub2">效果示例：104.16.0.1:443#优选 | 日本东京 | 下载 7.86MB/s | 23ms。城市来自优选后的地区识别；速度只写反代榜单里有服务器端实测值的 IP（Mbps 换算成 MB/s），colo 只写榜单里带机房代码的 IP；没有真实数据的字段自动省略，不编造。最低下载速度填了以后，没有榜单实测速度的 IP 会被过滤掉（无法证明达标）。</p>
         </div>
         <div style="margin-top:16px">
           <span style="font-size:12px;color:var(--dim)">导出地区</span>
@@ -596,7 +623,7 @@
       </section>
       <section class="panel principle">
         <h2>测速原理</h2>
-        <p>点「开始优选」后，测速在你这台手机/电脑的浏览器里跑：对每个候选 IP 发起一次 HTTPS 请求并计时，所以测出来的是你本地网络的真实相对延迟。第一轮按筛选并发快速过一遍；精测名单按地区取前几名再补全局最快的若干个，每 IP 共测 3 次取中位数，并用样本极差算抖动。综合质量分 = 中位延迟 + 抖动 × 0.5。浏览器受证书/SNI 限制读不到逐 IP 的落地节点（colo），地区来自各来源的 #标注；也做不了逐 IP 下载测速，总览的「线路测速」是整条线路经 Cloudflare 官方测速端点的实测下载和上传速度。测速时别开代理/VPN，否则测的是代理线路。这个静态版没有后台，设置、历史和资产保存在本机浏览器的 localStorage 里，刷新或关闭后重新打开会自动恢复（历史只保留最近 8 次）；换设备、换浏览器或清掉浏览器数据就会丢失。</p>
+        <p>点「开始优选」后，测速在你这台手机/电脑的浏览器里跑：对每个候选 IP 发起一次 HTTPS 请求并计时，所以测出来的是你本地网络的真实相对延迟。第一轮按筛选并发快速过一遍；精测名单按地区取前几名再补全局最快的若干个，每 IP 共测 3 次取中位数，并用样本极差算抖动。综合质量分 = 中位延迟 + 抖动 × 0.5。浏览器受证书/SNI 限制读不到逐 IP 的落地节点（colo），地区来自各来源的 #标注；没有标注的 IP 会在优选完成后，自动向第三方 IP 归属库查询归属地（主查 ipwho.is、备用 ipapi.co），查到的在结果行内以国旗加「识别」标记显示，查不到的保持未知地区，识别失败不影响排名和保留名单。这类归属地数据不是 Cloudflare 官方机房数据：国家/地区一级可信度较高，城市只是大致位置，而且 Cloudflare 是任播网络，归属地不等于你实际接入的机房位置，只能作参考。也做不了逐 IP 下载测速，总览的「线路测速」是整条线路经 Cloudflare 官方测速端点的实测下载和上传速度。测速时别开代理/VPN，否则测的是代理线路。这个静态版没有后台，设置、历史和资产保存在本机浏览器的 localStorage 里，刷新或关闭后重新打开会自动恢复（历史只保留最近 8 次）；换设备、换浏览器或清掉浏览器数据就会丢失。</p>
       </section>
     </div>
 
@@ -824,7 +851,9 @@ function collectState(){
     regions:Array.from(selectedRegions),
     sortMode:sortMode,
     expSel:Array.from(exportRegionSel),
-    exp:{format:$("expFormat").value, per:+$("expPer").value, cap:$("expCap").value, remark:$("expRemark").value},
+    exp:{format:$("expFormat").value, per:+$("expPer").value, cap:$("expCap").value, remark:$("expRemark").value,
+      minDl:$("expMinDl").value, template:$("expTemplate").value,
+      fields:{city:expFieldOn("city"), speed:expFieldOn("speed"), lat:expFieldOn("lat"), colo:expFieldOn("colo"), src:expFieldOn("src")}},
     px:{size:pxSize, sort:pxSort, tls:pxOnlyTls, pageSize:pxPageSize},
     assets:assets.slice(0, ASSETS_KEEP).map(function(a){
       return {ip:a.ip, note:a.note||"", best:(a.best==null? null : a.best), at:(a.at instanceof Date? a.at.toISOString() : a.at)};
@@ -834,7 +863,8 @@ function collectState(){
         lineDown:(typeof r.lineDown==="number" && isFinite(r.lineDown)? r.lineDown : null),
         snapshot:(r.snapshot||[]).slice(0, HISTORY_SNAP_KEEP).map(function(x){
           return {ip:x.ip, region:x.region||null, ok:!!x.ok, avg:(x.avg==null? null : x.avg), samples:x.samples||[],
-            dl:(typeof x.dl==="number" && isFinite(x.dl)? x.dl : null)};
+            dl:(typeof x.dl==="number" && isFinite(x.dl)? x.dl : null),
+            geo:(x.geo && typeof x.geo.cc==="string"? {cc:x.geo.cc, city:x.geo.city||"", region:x.geo.region||"", org:x.geo.org||"", src:x.geo.src||""} : null)};
         })};
     })
   };
@@ -876,16 +906,23 @@ function loadState(){
     var sel=d.regions.filter(function(c){ return validCodes[c]; });
     if(sel.length) selectedRegions=new Set(sel);
   }
-  if(d.sortMode==="quality" || d.sortMode==="latency" || d.sortMode==="stable") sortMode=d.sortMode;
+  if(d.sortMode==="quality" || d.sortMode==="latency" || d.sortMode==="speed") sortMode=d.sortMode;
   if(Array.isArray(d.expSel)){
     var esel=d.expSel.filter(function(c){ return validCodes[c]; });
     if(esel.length) exportRegionSel=new Set(esel);
   }
   var ex=d.exp||{};
-  if(ex.format==="txt" || ex.format==="csv") $("expFormat").value=ex.format;
+  if(ex.format==="txt" || ex.format==="csv" || ex.format==="nodes" || ex.format==="sub") $("expFormat").value=ex.format;
   if(ex.per!=null) setSelectValue($("expPer"), +ex.per);
   if(typeof ex.cap==="string") $("expCap").value=ex.cap;
   if(ex.remark==="region" || ex.remark==="latency" || ex.remark==="both") $("expRemark").value=ex.remark;
+  if(typeof ex.minDl==="string") $("expMinDl").value=ex.minDl;
+  if(typeof ex.template==="string") $("expTemplate").value=ex.template;
+  if(ex.fields && typeof ex.fields==="object"){
+    ["city","speed","lat","colo","src"].forEach(function(k){
+      var el=$("expF-"+k); if(el) el.checked=!!ex.fields[k];
+    });
+  }
   var px=d.px||{};
   if(px.size===200 || px.size===500 || px.size===1000) pxSize=px.size;
   if(px.sort==="score" || px.sort==="tcp" || px.sort==="speed" || px.sort==="local") pxSort=px.sort;
@@ -923,6 +960,8 @@ function resetDefaults(){
   exportRegionSel=new Set(REGIONS.map(function(r){ return r.code; }));
   sortMode="quality"; resultFilter="ALL";
   $("expFormat").value="txt"; setSelectValue($("expPer"), 20); $("expCap").value=""; $("expRemark").value="region";
+  $("expMinDl").value=""; $("expTemplate").value="";
+  ["city","speed","lat","colo","src"].forEach(function(k){ var el=$("expF-"+k); if(el) el.checked=false; });
   pxSize=500; pxSort="score"; pxOnlyTls=false; pxPageSize=100; pxPage=1;
   syncSettingsInputs();
   renderAll();
@@ -1064,7 +1103,7 @@ function flagImg(code, w, h){
   var cc = code ? String(code).toUpperCase() : "";
   if(cc==="UK") cc="GB";
   if(cc && FLAG_FILES[cc.toLowerCase()]){
-    return '<img src="'+(FLAG_DATA[cc.toLowerCase()])+'" alt="'+esc(regionName(cc))+'旗帜" width="'+w+'" height="'+h+'" loading="lazy" decoding="async" style="width:'+w+'px;height:'+h+'px" onerror="this.onerror=null;this.style.display=\'none\';" />';
+    return '<img src="'+FLAG_DATA[cc.toLowerCase()]+'" alt="'+esc(regionName(cc))+'旗帜" width="'+w+'" height="'+h+'" loading="lazy" decoding="async" style="width:'+w+'px;height:'+h+'px" onerror="this.onerror=null;this.style.display=\'none\';" />';
   }
   return '<span class="flagfb" style="width:'+w+'px;height:'+h+'px" aria-hidden="true">'+svgIcon(GLOBE_PATHS, Math.max(h-3,8))+"</span>";
 }
@@ -1295,6 +1334,15 @@ function sortAlive(list, mode){
   arr.sort(function(a,b){
     if(mode==="latency") return ((a.avg||0)-(b.avg||0)) || (scoreOf(a)-scoreOf(b));
     if(mode==="stable") return (jitterOf(a)-jitterOf(b)) || ((a.avg||0)-(b.avg||0));
+    if(mode==="speed"){
+      /* 高下载：只能用反代榜单里现成的逐 IP 服务器端实测速度排（浏览器测不了逐 IP 下载）；
+         有实测速度的按速度从高到低，没有数据的排后面按综合质量，不编造速度 */
+      var sa=pxSpeedOf(a.ip), sb=pxSpeedOf(b.ip);
+      var va=(typeof sa==="number" && isFinite(sa))? sa : -1;
+      var vb=(typeof sb==="number" && isFinite(sb))? sb : -1;
+      if(vb!==va) return vb-va;
+      return (scoreOf(a)-scoreOf(b)) || ((a.avg||0)-(b.avg||0));
+    }
     return (scoreOf(a)-scoreOf(b)) || ((a.avg||0)-(b.avg||0));
   });
   return arr;
@@ -1721,6 +1769,108 @@ function runTest(){
     if(runs.length>20) runs.length=20;
     saveState();
     renderAll();
+    /* 优选结果已定版，之后才在后台识别未标注 IP 的归属地：只补行内标注，
+       不改分组、排名和保留名单，失败也不影响上面的结果 */
+    var keptIps={};
+    groups.forEach(function(g){ g.kept.forEach(function(r){ keptIps[r.ip]=true; }); });
+    identifyUnknownRegions(finalResults, keptIps);
+  });
+}
+
+/* ================= 地区识别（优选完成后，后台查未标注 IP 的归属地） =================
+   来源列表没有 # 地区标注的 IP 归入「未知地区」。优选结束后在后台逐个查第三方
+   IP 归属库，查到的在结果行内以国旗 +「识别」标记显示；分组、排名、保留名单
+   仍按来源标注计算，识别结果不改变优选结果，识别失败/超时就保持未知地区。
+   来源与可信度：主查 ipwho.is、备用 ipapi.co，都是第三方公开 IP 归属数据库，
+   不是 Cloudflare 官方机房数据；国家/地区一级可信度较高，城市只是大致位置，
+   且 Cloudflare 是任播网络，归属地不等于实际接入的机房。 */
+var GEO_CAP = 150;         /* 单轮最多识别多少个，超出的保持未知地区，避免拖慢页面 */
+var GEO_CONC = 6;          /* 识别并发 */
+var geoCache = {};         /* ip -> geo | null（null = 查过但没查到，本轮不再重复查） */
+var geoBusy = false;
+
+function geoFetchJson(url, timeoutMs){
+  var ctrl=new AbortController();
+  var timer=setTimeout(function(){ ctrl.abort(); }, timeoutMs);
+  return fetch(url, {signal:ctrl.signal, cache:"no-store"}).then(function(res){
+    clearTimeout(timer);
+    if(!res.ok) throw new Error("http "+res.status);
+    return res.json();
+  }).catch(function(e){ clearTimeout(timer); throw e; });
+}
+function geoNormalize(cc, city, region, org, src){
+  cc = cc? String(cc).toUpperCase() : "";
+  if(cc==="UK") cc="GB";
+  if(!/^[A-Z]{2}$/.test(cc) || !REGION_NAMES[cc]) return null;
+  return {cc:cc, city:city||"", region:region||"", org:org||"", src:src};
+}
+function geoLookup(ip){
+  return geoFetchJson("https://ipwho.is/"+encodeURIComponent(ip), 6000).then(function(j){
+    if(j && j.success!==false && j.country_code){
+      var g=geoNormalize(j.country_code, j.city, j.region, j.connection? (j.connection.isp||j.connection.org||"") : "", "ipwho.is");
+      if(g) return g;
+    }
+    throw new Error("no result");
+  }).catch(function(){
+    return geoFetchJson("https://ipapi.co/"+encodeURIComponent(ip)+"/json/", 6000).then(function(j){
+      if(j && !j.error && j.country_code) return geoNormalize(j.country_code, j.city, j.region, j.org, "ipapi.co");
+      return null;
+    }).catch(function(){ return null; });
+  });
+}
+function geoTagHtml(geo){
+  var label = geo.cc+" "+regionName(geo.cc)+(geo.city? (" · "+geo.city) : "");
+  var title = "归属地识别 · 来源："+geo.src+"（第三方 IP 归属库，非 Cloudflare 官方机房数据）；国家/地区可信度较高，城市为大致位置；Cloudflare 为任播网络，不代表实际接入的机房"+(geo.org? ("；运营商/机房："+geo.org) : "");
+  return '<span class="rtag geo" title="'+esc(title)+'">'+flagImg(geo.cc,18,12)+esc(label)+" · 识别</span>";
+}
+function applyGeoToRuns(){
+  runs.forEach(function(run){
+    if(!run || !Array.isArray(run.snapshot)) return;
+    run.snapshot.forEach(function(s){
+      if(!s.geo && geoCache[s.ip]) s.geo=geoCache[s.ip];
+    });
+  });
+}
+function identifyUnknownRegions(list, keptIps){
+  if(geoBusy) return;
+  var seen={}, tier1=[], tier2=[], patched=0;
+  (list||[]).forEach(function(r){
+    if(!r || !r.ok || r.geo || seen[r.ip]) return;
+    /* 第一优先：没有地区标注的，查归属地；第二优先：已标注但进了保留名单的，补城市（节点名/备注里显示东京、大阪、洛杉矶这类城市） */
+    var isTier1=!r.region, isTier2=!!r.region && !!(keptIps && keptIps[r.ip]);
+    if(!isTier1 && !isTier2) return;
+    if(Object.prototype.hasOwnProperty.call(geoCache, r.ip)){ if(geoCache[r.ip]){ r.geo=geoCache[r.ip]; patched++; } return; }
+    seen[r.ip]=true; (isTier1? tier1 : tier2).push(r);
+  });
+  var byAvg=function(a,b){ return (a.avg==null? Number.MAX_SAFE_INTEGER : a.avg)-(b.avg==null? Number.MAX_SAFE_INTEGER : b.avg); };
+  tier1.sort(byAvg); tier2.sort(byAvg);
+  var targets=tier1.concat(tier2);
+  var overflow = Math.max(0, targets.length-GEO_CAP);
+  targets = targets.slice(0, GEO_CAP);
+  if(!targets.length){
+    if(patched){ applyGeoToRuns(); saveState(); renderRanking(); renderHistory(); }
+    return;
+  }
+  geoBusy=true;
+  log("地区识别："+targets.length+" 个 IP 正在查归属地/城市（未标注的查地区，保留名单里已标注的补城市；来源 ipwho.is / ipapi.co 第三方 IP 库）"+(overflow? ("，其余 "+overflow+" 个本轮不查") : ""));
+  var doneN=0, hitN=0;
+  var ctrl=new AbortController();
+  runPool(targets, GEO_CONC, ctrl.signal, function(r){
+    return geoLookup(r.ip).then(function(g){
+      geoCache[r.ip]=g;
+      if(g){ r.geo=g; hitN++; }
+      doneN++;
+      if(doneN%20===0 || doneN===targets.length){
+        applyGeoToRuns();
+        renderRanking(); renderHistory();
+      }
+    });
+  }).then(function(){
+    geoBusy=false;
+    applyGeoToRuns();
+    saveState();
+    renderRanking(); renderHistory();
+    log("地区识别完成：查到 "+hitN+" 个，仍未知 "+(targets.length-hitN)+" 个。归属地来自第三方 IP 库，国家级较可信、城市仅供参考，不代表实际接入的 Cloudflare 机房", hitN>0? "ok":"warn");
   });
 }
 
@@ -1892,7 +2042,7 @@ function fetchProxyBoard(){
     pxBoard={total:pxNum(root.total)!=null? pxNum(root.total) : nodes.length, fetchedAt:new Date(), nodes:nodes, stats:stats};
     pxPage=1; pxLoading=false;
     log("反代 IP 榜单已拉取："+(pxCc? (regionName(pxCc)+"（"+pxCc+"）") : "全球")+"共 "+pxBoard.total+" 个可用节点，本次加载 "+nodes.length+" 个", "ok");
-    renderProxy();
+    renderProxy(); renderCharts();
   }).catch(function(){
     pxLoading=false;
     pxNotice="拉取反代 IP 榜单失败，检查网络后重试";
@@ -1994,6 +2144,26 @@ function renderProxy(){
       ch+='<div class="bar-row"><span class="who">'+flagImg(c.cc,22,15)+esc(regionName(c.cc))+'</span><span class="bar-track"><span class="bar-fill" style="width:'+Math.max(3,Math.round(c.n/Math.max(1,maxN)*100))+'%"></span></span><span class="num">'+c.n+" 个</span></div>";
     });
     $("pxDistChart").innerHTML=ch;
+    /* 各属地平均下载：用榜单节点自带的 speed_mbps（mileet 服务器端实测）按属地求平均，
+       只统计有真实速度数据的节点，没有就不画，不编造 */
+    var byCcSpeed={};
+    ((pxBoard && pxBoard.nodes) || []).forEach(function(n){
+      if(n && n.cc && typeof n.speed_mbps==="number" && isFinite(n.speed_mbps)) (byCcSpeed[n.cc]=byCcSpeed[n.cc]||[]).push(n.speed_mbps);
+    });
+    var speedRows=top12.filter(function(c){ return byCcSpeed[c.cc]; }).map(function(c){
+      var arr=byCcSpeed[c.cc];
+      return {cc:c.cc, avg:Math.round(arr.reduce(function(a,b){return a+b;},0)/arr.length*100)/100};
+    });
+    if(speedRows.length){
+      var maxS=Math.max.apply(null, speedRows.map(function(x){ return x.avg; }));
+      var sh="";
+      speedRows.forEach(function(x){
+        sh+='<div class="bar-row"><span class="who">'+flagImg(x.cc,22,15)+esc(regionName(x.cc))+'</span><span class="bar-track"><span class="bar-fill" style="width:'+Math.max(3,Math.round(x.avg/Math.max(1,maxS)*100))+'%"></span></span><span class="num">'+x.avg+" Mbps</span></div>";
+      });
+      $("pxSpeedChart").innerHTML=sh;
+    } else {
+      $("pxSpeedChart").innerHTML='<div class="cempty">榜单这批节点没有带下载速度的数据</div>';
+    }
     var chips='<button type="button" class="chip'+(pxCc===null?" on":"")+'" data-pxccpick="" aria-pressed="'+(pxCc===null)+'">全部属地</button>';
     s.by_country.forEach(function(c){
       chips+='<button type="button" class="chip'+(pxCc===c.cc?" on":"")+'" data-pxccpick="'+esc(c.cc)+'" aria-pressed="'+(pxCc===c.cc)+'">'+flagImg(c.cc,22,15)+esc(regionName(c.cc))+' <span class="mono" style="font-size:12px;color:var(--dim)">'+c.n+"</span></button>";
@@ -2124,6 +2294,8 @@ function renderCharts(){
   if(!latGroups.length){
     $("chartLat").innerHTML='<div class="cempty">跑一次优选后显示</div>';
     $("chartCnt").innerHTML='<div class="cempty">跑一次优选后显示</div>';
+    $("chartKept").innerHTML='<div class="cempty">跑一次优选后显示</div>';
+    $("chartDl").innerHTML='<div class="cempty">跑一次优选后显示</div>';
     return;
   }
   function rows(list, valFn, max, unit){
@@ -2136,8 +2308,34 @@ function renderCharts(){
   }
   var maxLat=Math.max.apply(null, latGroups.map(function(g){return g.avgLatency;}));
   var maxCnt=Math.max.apply(null, groups.map(function(g){return g.alive.length;}));
+  var maxKept=Math.max.apply(null, groups.map(function(g){return g.kept.length;}));
   $("chartLat").innerHTML=rows(latGroups, function(g){return g.avgLatency;}, Math.max(1,maxLat), " ms");
   $("chartCnt").innerHTML=rows(groups, function(g){return g.alive.length;}, Math.max(1,maxCnt), " 个");
+  $("chartKept").innerHTML=rows(groups, function(g){return g.kept.length;}, Math.max(1,maxKept), " 个");
+  /* 地区平均下载：按优选结果的地区分组（和上面三张图同一维度，不是反代页按榜单属地的图），
+     只取该地区保留 IP 里在反代榜单中带服务器端实测速度（speed_mbps）的 IP 求平均；
+     没有这类真实数据的地区整行留空显示「无数据」，绝不用线路测速速度冒充逐 IP 下载均值 */
+  var dlGroups=groups.map(function(g){
+    var vals=[];
+    g.kept.forEach(function(r){ var v=pxSpeedOf(r.ip); if(typeof v==="number" && isFinite(v)) vals.push(v); });
+    var avg=vals.length? Math.round(vals.reduce(function(a,b){return a+b;},0)/vals.length*100)/100 : null;
+    return {key:g.key, name:g.name, avg:avg, n:vals.length};
+  });
+  var dlWith=dlGroups.filter(function(g){return g.avg!=null;});
+  if(!dlWith.length){
+    $("chartDl").innerHTML='<div class="cempty">本轮保留 IP 里没有带榜单实测下载速度的<br />（需先在「反代 IP」页拉一次榜单，且保留 IP 恰好在榜单中）</div>';
+  } else {
+    var maxDl=Math.max.apply(null, dlWith.map(function(g){return g.avg;}));
+    var dh="";
+    dlGroups.forEach(function(g){
+      if(g.avg==null){
+        dh+='<div class="bar-row nodata"><span class="who">'+flagImg(g.key==="UNKNOWN"?null:g.key,22,15)+esc(g.name)+'</span><span class="bar-track"></span><span class="num">无数据</span></div>';
+      } else {
+        dh+='<div class="bar-row" title="基于 '+g.n+' 个保留 IP 的榜单实测下载速度平均"><span class="who">'+flagImg(g.key==="UNKNOWN"?null:g.key,22,15)+esc(g.name)+'</span><span class="bar-track"><span class="bar-fill" style="width:'+Math.max(3,Math.round(g.avg/Math.max(1,maxDl)*100))+'%"></span></span><span class="num">'+g.avg+" Mbps</span></div>";
+      }
+    });
+    $("chartDl").innerHTML=dh;
+  }
 }
 function renderProgRegions(){
   var groups=computeGroups(results, selectedRegions, +$("keepPer").value, +$("latCap").value, "quality");
@@ -2154,7 +2352,7 @@ function renderProgRegions(){
 }
 
 /* ================= 渲染：排名 ================= */
-var SORT_HINTS = {quality:"延迟 + 抖动惩罚", latency:"只看中位延迟", stable:"抖动小者靠前"};
+var SORT_HINTS = {quality:"延迟 + 抖动惩罚", latency:"只看中位延迟", speed:"按反代榜单的逐 IP 实测下载速度从高到低（浏览器测不了逐 IP 下载，只有榜单里有实测值的 IP 参与速度排序，没有数据的排后面按综合质量）"};
 function latClass(ms){ return ms<=200?"":(ms<=500?" mid":" bad"); }
 function isSaved(ip){ return assets.some(function(a){return a.ip===ip;}); }
 function historyDlHtml(r, run){
@@ -2162,16 +2360,43 @@ function historyDlHtml(r, run){
   if(run && typeof run.lineDown==="number" && isFinite(run.lineDown)) return '<span class="dltag line" title="没有逐 IP 下载数据，显示那次优选时的线路下载速度">↓ '+run.lineDown+" Mbps · 线路速度</span>";
   return '<span class="dltag na" title="没有下载速度数据">↓ —</span>';
 }
+/* 排名行里的下载速度，和历史同一口径：浏览器测不了逐 IP 真实下载，
+   只有该 IP 恰好在反代榜单里带了服务器端实测速度时才显示真实值，
+   否则显示本次线路速度并标注，再没有就显 —，不编造逐 IP 速度 */
+var pxSpeedCache={board:null, map:{}, colo:{}};
+function pxSpeedOf(ip){
+  if(!pxBoard || !Array.isArray(pxBoard.nodes)) return null;
+  if(pxSpeedCache.board!==pxBoard){
+    var m={}, cm={};
+    pxBoard.nodes.forEach(function(n){
+      if(!n) return;
+      if(typeof n.speed_mbps==="number" && isFinite(n.speed_mbps)) m[n.ip]=n.speed_mbps;
+      if(n.colo) cm[n.ip]=n.colo;
+    });
+    pxSpeedCache={board:pxBoard, map:m, colo:cm};
+  }
+  return Object.prototype.hasOwnProperty.call(pxSpeedCache.map, ip)? pxSpeedCache.map[ip] : null;
+}
+function pxColoOf(ip){
+  pxSpeedOf(ip); /* 顺带把缓存建好 */
+  return Object.prototype.hasOwnProperty.call(pxSpeedCache.colo, ip)? pxSpeedCache.colo[ip] : null;
+}
+function rankDlHtml(r){
+  var v=pxSpeedOf(r.ip);
+  if(typeof v==="number" && isFinite(v)) return '<span class="dltag" title="该 IP 在反代榜单里的下载速度（榜单服务器端实测）">↓ '+v+" Mbps</span>";
+  if(lineInfo && typeof lineInfo.down==="number" && isFinite(lineInfo.down)) return '<span class="dltag line" title="没有逐 IP 下载数据，显示本次线路测速的整条线路下载速度">↓ '+lineInfo.down+" Mbps · 线路速度</span>";
+  return '<span class="dltag na" title="没有下载速度数据">↓ —</span>';
+}
 function resultRow(r, i, dlHtml){
   var samples = r.samples && r.samples.length ? ("样本 "+r.samples.map(function(s){return s+"ms";}).join(" · ")+(r.samples.length>1?(" · 抖动 "+jitterOf(r)+"ms"):"")) : "";
   var saved=isSaved(r.ip);
   var latHtml = (r.ok && r.avg!=null)? '<span class="lat'+latClass(r.avg)+'">'+r.avg+' ms</span>' : '<span class="lat bad">超时</span>';
-  var tag = r.region? '<span class="rtag">'+flagImg(r.region,18,12)+esc(r.region)+" "+esc(regionName(r.region))+"</span>" : "";
+  var tag = r.region? '<span class="rtag">'+flagImg(r.region,18,12)+esc(r.region)+" "+esc(regionName(r.region))+(r.geo && r.geo.city? (" · "+esc(r.geo.city)) : "")+"</span>" : (r.geo && r.geo.cc? geoTagHtml(r.geo) : "");
   return '<li><span class="rank">'+(i+1)+'</span><span class="mid"><span class="ipline"><span class="ip">'+esc(r.ip)+"</span>"+(dlHtml||"")+tag+"</span>"
     +(samples?('<span class="samples" style="display:block">'+esc(samples)+"</span>"):"")
     +"</span>"+latHtml
     +'<button type="button" class="iconbtn" data-copy="'+esc(r.ip)+'" aria-label="复制 '+esc(r.ip)+'">'+ICONS.copy+"</button>"
-    +'<button type="button" class="iconbtn'+(saved?" saved":"")+'" data-save="'+esc(r.ip)+'" data-region="'+esc(r.region||"")+'" data-lat="'+(r.avg==null?"":r.avg)+'" aria-label="收藏 '+esc(r.ip)+'" aria-pressed="'+saved+'">'+ICONS.heart(saved)+"</button></li>";
+    +'<button type="button" class="iconbtn'+(saved?" saved":"")+'" data-save="'+esc(r.ip)+'" data-region="'+esc(r.region||(r.geo?r.geo.cc:"")||"")+'" data-lat="'+(r.avg==null?"":r.avg)+'" aria-label="收藏 '+esc(r.ip)+'" aria-pressed="'+saved+'">'+ICONS.heart(saved)+"</button></li>";
 }
 function bindRowButtons(scope){
   scope.querySelectorAll("[data-copy]").forEach(function(b){
@@ -2187,15 +2412,13 @@ function bindRowButtons(scope){
   });
 }
 function renderRanking(){
-  var hint=SORT_HINTS[sortMode];
-  if(sortMode!=="quality") hint+="；桌面工具的「高下载」排序需要逐 IP 下载测速，浏览器做不到，这里用稳定优先代替";
-  $("sortHint").textContent=hint;
+  $("sortHint").textContent=SORT_HINTS[sortMode] || SORT_HINTS.quality;
   document.querySelectorAll("#sortSeg button").forEach(function(b){
     b.classList.toggle("on", b.getAttribute("data-mode")===sortMode);
     b.setAttribute("aria-selected", b.getAttribute("data-mode")===sortMode ? "true":"false");
   });
   var keep=+$("keepPer").value, cap=+$("latCap").value;
-  $("rankingSub").textContent="当前显示的是本轮优选结果。地区为来源标注（浏览器读不到真实落地节点）；名次按所选方式在每个地区内排序，每地区保留前 "+keep+" 名"+(cap>0?("，延迟上限 "+cap+"ms"):"")+"。";
+  $("rankingSub").textContent="当前显示的是本轮优选结果。分组按来源标注（浏览器读不到真实落地节点）；未标注的 IP 在优选完成后会自动查归属地，查到的在行内以国旗加「识别」标记显示（来源为第三方 IP 归属库，国家级较可信、城市仅供参考，不代表实际机房，也不改变分组和名次），查不到的保持未知地区。行内 ↓ 是下载速度：该 IP 在反代榜单里有服务器端实测值的显示实测值，否则显示本次线路速度并标「线路速度」，都没有就显 —（浏览器测不了逐 IP 真实下载，不编造）。名次按所选方式在每个地区内排序，每地区保留前 "+keep+" 名"+(cap>0?("，延迟上限 "+cap+"ms"):"")+"。";
   var groups=computeGroups(results, selectedRegions, keep, cap, sortMode);
   $("rankingEmpty").classList.toggle("hidden", groups.length>0);
   if(!groups.length){ $("resultFilters").innerHTML=""; $("rankingGroups").innerHTML=""; return; }
@@ -2213,11 +2436,12 @@ function renderRanking(){
   var html="";
   groups.forEach(function(g){
     if(resultFilter!=="ALL" && resultFilter!==g.key) return;
+    var geoN = g.key==="UNKNOWN"? g.alive.filter(function(r){return r.geo && r.geo.cc;}).length : 0;
     html+='<section class="panel"><div class="grouphead">'+flagImg(g.key==="UNKNOWN"?null:g.key,30,20).replace("<img",'<img class="gf"')
       +"<h2>"+esc(g.name)+'</h2><span class="code">'+(g.key==="UNKNOWN"?"来源未标注":g.key)+'</span>'
-      +'<span class="gsum">存活 '+g.alive.length+" · 平均 "+(g.avgLatency==null?"—":g.avgLatency)+" ms"+(g.included?(" · 保留前 "+g.kept.length):" · 未启用，不保留")+"</span></div>"
+      +'<span class="gsum">存活 '+g.alive.length+" · 平均 "+(g.avgLatency==null?"—":g.avgLatency)+" ms"+(g.included?(" · 保留前 "+g.kept.length):" · 未启用，不保留")+(geoN?(" · 已识别归属地 "+geoN+" 个（行内「识别」标记，第三方 IP 库数据）"):"")+"</span></div>"
       +'<ul class="rlist">';
-    g.alive.slice(0,100).forEach(function(r,i){ html+=resultRow(r,i); });
+    g.alive.slice(0,100).forEach(function(r,i){ html+=resultRow(r,i, rankDlHtml(r)); });
     html+="</ul>";
     if(g.alive.length>100) html+='<p class="groupnote">仅显示前 100 个，完整的在导出里</p>';
     html+="</section>";
@@ -2236,19 +2460,109 @@ function exportKept(){
   groups.forEach(function(g){ kept=kept.concat(g.kept); });
   return sortAlive(kept, "quality");
 }
+function effCc(r){ return r.region || (r.geo? r.geo.cc : null); }
+function countryCity(r){
+  var cc=effCc(r);
+  var name=cc? regionName(cc) : "未知地区";
+  var city=r.geo? r.geo.city : "";
+  return city? (name+city) : name;
+}
+function mbpsToMBs(v){ return Math.round(v/8*100)/100; }
+function sourceLabelOf(ip){
+  var key=srcOfIp.get(ip);
+  if(!key) return "候选池";
+  for(var i=0;i<STAT_ROWS.length;i++) if(STAT_ROWS[i].key===key) return STAT_ROWS[i].label;
+  return key;
+}
+function expFieldOn(name){ var el=$("expF-"+name); return !!(el && el.checked); }
+function anyExpField(){ return ["city","speed","lat","colo","src"].some(expFieldOn); }
+/* 组合备注：按勾选拼 优选 | 国家城市 | 下载 xMB/s | 延迟 | colo | 来源；
+   速度/colo 只有反代榜单里有真实数据的 IP 才写，没有就省略这一段，不编造 */
+function composedRemark(r){
+  var segs=["优选"];
+  if(expFieldOn("city")) segs.push(countryCity(r));
+  if(expFieldOn("speed")){ var v=pxSpeedOf(r.ip); if(typeof v==="number" && isFinite(v)) segs.push("下载 "+mbpsToMBs(v)+"MB/s"); }
+  if(expFieldOn("lat")) segs.push(r.avg==null? "—" : (r.avg+"ms"));
+  if(expFieldOn("colo")){ var c=pxColoOf(r.ip); if(c) segs.push(c); }
+  if(expFieldOn("src")) segs.push(sourceLabelOf(r.ip));
+  return segs.join(" | ");
+}
 function remarkText(r){
+  if(anyExpField()) return composedRemark(r);
   var mode=$("expRemark").value;
-  var regionPart = r.region? regionName(r.region) : "优选";
+  var regionPart = r.region? regionName(r.region) : (r.geo && r.geo.cc? regionName(r.geo.cc) : "优选");
   if(mode==="latency") return (r.avg==null?"—":r.avg)+"ms";
   if(mode==="both") return regionPart+" "+(r.avg==null?"—":r.avg)+"ms";
   return regionPart;
 }
+/* ---- v2rayN 格式：沿用用户自己一条节点链接作模板，只换 IP/端口/节点名 ---- */
+function b64EncodeUtf8(str){
+  var bytes=new TextEncoder().encode(str);
+  var bin="";
+  bytes.forEach(function(b){ bin+=String.fromCharCode(b); });
+  return btoa(bin);
+}
+function b64DecodeUtf8(b64){
+  var bin=atob(String(b64).replace(/\s/g,""));
+  var bytes=new Uint8Array(bin.length);
+  for(var i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+function nodeRemark(r){
+  var segs=["优选", countryCity(r)];
+  var v=pxSpeedOf(r.ip);
+  if(typeof v==="number" && isFinite(v)) segs.push("下载 "+mbpsToMBs(v)+"MB/s");
+  segs.push(r.avg==null? "—" : (r.avg+"ms"));
+  return segs.join(" | ");
+}
+function buildNodeLinks(list, port){
+  var tpl=($("expTemplate").value||"").trim();
+  if(!tpl) return null;
+  if(/^vmess:\/\//i.test(tpl)){
+    var json=null;
+    try{ json=JSON.parse(b64DecodeUtf8(tpl.slice(8))); }catch(e){ return null; }
+    if(!json || typeof json!=="object" || Array.isArray(json)) return null;
+    return list.map(function(r){
+      var o={}; for(var k in json) o[k]=json[k];
+      o.add=r.ip; o.port=String(port); o.ps=nodeRemark(r);
+      return "vmess://"+b64EncodeUtf8(JSON.stringify(o));
+    });
+  }
+  var m=/^([a-z][a-z0-9+.-]*):\/\/([^@/?#]+)@([^:/?#]+)(:\d+)?(\?[^#]*)?(#.*)?$/i.exec(tpl);
+  if(!m) return null;
+  var scheme=m[1].toLowerCase();
+  if(scheme!=="vless" && scheme!=="trojan") return null;
+  return list.map(function(r){
+    return scheme+"://"+m[2]+"@"+r.ip+":"+port+(m[5]||"")+"#"+encodeURIComponent(nodeRemark(r));
+  });
+}
+function csvCell(s){
+  s=String(s==null? "" : s);
+  return /[",\n]/.test(s)? '"'+s.replace(/"/g,'""')+'"' : s;
+}
 function exportText(){
   var list=exportKept();
+  /* 最低下载筛选：只有反代榜单里有实测速度的 IP 能证明达标，没数据的过滤掉 */
+  var minDlRaw=$("expMinDl").value.trim();
+  var minDl = minDlRaw===""? null : +minDlRaw;
+  if(minDl!=null && !isNaN(minDl) && minDl>0){
+    list=list.filter(function(r){ var v=pxSpeedOf(r.ip); return typeof v==="number" && isFinite(v) && v>=minDl; });
+  }
   var port=$("expPort").value;
-  if($("expFormat").value==="csv"){
-    var lines=["ip,port,region,region_name,latency_ms"];
-    list.forEach(function(r){ lines.push(r.ip+","+port+","+(r.region||"")+","+regionName(r.region)+","+(r.avg==null?"":r.avg)); });
+  var fmt=$("expFormat").value;
+  if(fmt==="nodes" || fmt==="sub"){
+    var links=buildNodeLinks(list, port);
+    if(!links) return {text:"", count:list.length, list:list, needTpl:true};
+    if(fmt==="sub") return {text:b64EncodeUtf8(links.join("\n")), count:list.length, list:list};
+    return {text:links.join("\n"), count:list.length, list:list};
+  }
+  if(fmt==="csv"){
+    var lines=["ip,port,region,region_name,city,latency_ms,download_mbps,colo,source"];
+    list.forEach(function(r){
+      var v=pxSpeedOf(r.ip);
+      lines.push([r.ip, port, effCc(r)||"", regionName(effCc(r)), (r.geo? r.geo.city : ""), (r.avg==null? "" : r.avg),
+        (typeof v==="number" && isFinite(v)? v : ""), pxColoOf(r.ip)||"", sourceLabelOf(r.ip)].map(csvCell).join(","));
+    });
     return {text:lines.join("\n"), count:list.length, list:list};
   }
   return {text:list.map(function(r){ return r.ip+":"+port+"#"+remarkText(r); }).join("\n"), count:list.length, list:list};
@@ -2268,8 +2582,19 @@ function renderExport(){
       renderExport();
     });
   });
+  var fmt=$("expFormat").value;
+  $("expTplWrap").classList.toggle("hidden", !(fmt==="nodes" || fmt==="sub"));
   var ex=exportText();
   $("expCount").textContent=ex.count+" 条";
+  var n=$("expNotice");
+  if(ex.needTpl){
+    $("expEmpty").classList.add("hidden");
+    $("expMain").classList.add("hidden");
+    n.textContent="还差一步：在上面粘贴一条你现有的 vless:// / trojan:// / vmess:// 节点链接作模板，才能生成 v2rayN 格式（沿用模板的 UUID、传输、SNI、路径，只换 IP 和端口，节点名按真实城市和本地实测延迟生成）。";
+    n.classList.remove("hidden");
+    return;
+  }
+  n.classList.add("hidden");
   $("expEmpty").classList.toggle("hidden", ex.count>0);
   $("expMain").classList.toggle("hidden", ex.count===0);
   if(ex.count>0) $("expPreview").value=ex.text;
@@ -2489,10 +2814,16 @@ $("portSel").addEventListener("change", function(){ syncSettingsInputs(); $("exp
 $("expCap").addEventListener("input", saveState);
 $("expPort").addEventListener("change", saveState);
 ["expFormat","expPer","expRemark"].forEach(function(id){ $(id).addEventListener("change", renderExport); });
+$("expMinDl").addEventListener("input", function(){ saveState(); renderExport(); });
+$("expTemplate").addEventListener("input", function(){ saveState(); renderExport(); });
+["city","speed","lat","colo","src"].forEach(function(k){
+  $("expF-"+k).addEventListener("change", function(){ saveState(); renderExport(); });
+});
 $("expCap").addEventListener("input", renderExport);
 $("expPort").addEventListener("change", function(){ $("portSel").value=this.value; syncSettingsInputs(); renderExport(); });
 $("btnCopy").addEventListener("click", function(){
-  var ex=exportText(); if(!ex.count){ toast("没有可复制的结果"); return; }
+  var ex=exportText(); if(ex.needTpl){ toast("先粘贴一条节点链接作模板"); return; }
+  if(!ex.count){ toast("没有可复制的结果"); return; }
   copyText(ex.text).then(function(ok){
     if(ok){ toast("已复制 "+ex.count+" 条"); return; }
     var pv=$("expPreview");
@@ -2501,9 +2832,11 @@ $("btnCopy").addEventListener("click", function(){
   });
 });
 $("btnDownload").addEventListener("click", function(){
-  var ex=exportText(); if(!ex.count){ toast("没有可下载的结果"); return; }
+  var ex=exportText(); if(ex.needTpl){ toast("先粘贴一条节点链接作模板"); return; }
+  if(!ex.count){ toast("没有可下载的结果"); return; }
   var fmt=$("expFormat").value;
-  downloadTextFile("youxuan-ips."+(fmt==="csv"?"csv":"txt"), ex.text).then(function(via){
+  var fname = fmt==="csv"? "youxuan-ips.csv" : (fmt==="sub"? "youxuan-v2rayn-sub.txt" : (fmt==="nodes"? "youxuan-v2rayn-nodes.txt" : "youxuan-ips.txt"));
+  downloadTextFile(fname, ex.text).then(function(via){
     if(via==="manual"){
       /* 导出页有现成的预览框：选中它，用户长按即可手动复制保存 */
       var pv=$("expPreview");
