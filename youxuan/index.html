@@ -227,6 +227,9 @@
   .rlist .ip{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:15px;word-break:break-all}
   .rtag{display:inline-flex;align-items:center;gap:4px;border-radius:6px;background:var(--surface-3);padding:2px 6px;font-size:11px;font-weight:500;color:var(--dim);flex:none}
   .rtag img{width:18px;height:12px;object-fit:contain;display:block;border-radius:2px}
+  .dltag{display:inline-flex;align-items:center;border-radius:6px;background:var(--surface-2);padding:2px 6px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;font-weight:600;color:var(--text);flex:none;white-space:nowrap}
+  .dltag.line{color:var(--dim);font-weight:500}
+  .dltag.na{color:var(--dim);font-weight:500}
   .rlist .samples{font-size:12px;color:var(--dim);margin-top:1px;word-break:break-all}
   .rlist .lat{flex:none;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:15px;font-weight:600;color:var(--good)}
   .rlist .lat.mid{color:var(--warn)} .rlist .lat.bad{color:var(--bad)}
@@ -828,8 +831,10 @@ function collectState(){
     }),
     runs:runs.slice(0, HISTORY_KEEP).map(function(r){
       return {id:r.id, at:(r.at instanceof Date? r.at.toISOString() : r.at), total:r.total, alive:r.alive, fc:r.fc, top:r.top,
+        lineDown:(typeof r.lineDown==="number" && isFinite(r.lineDown)? r.lineDown : null),
         snapshot:(r.snapshot||[]).slice(0, HISTORY_SNAP_KEEP).map(function(x){
-          return {ip:x.ip, region:x.region||null, ok:!!x.ok, avg:(x.avg==null? null : x.avg), samples:x.samples||[]};
+          return {ip:x.ip, region:x.region||null, ok:!!x.ok, avg:(x.avg==null? null : x.avg), samples:x.samples||[],
+            dl:(typeof x.dl==="number" && isFinite(x.dl)? x.dl : null)};
         })};
     })
   };
@@ -895,7 +900,13 @@ function loadState(){
     runs=d.runs.filter(function(r){ return r && typeof r==="object"; }).slice(0, HISTORY_KEEP).map(function(r){
       return {id:(typeof r.id==="number"? r.id : Date.now()), at:(r.at? new Date(r.at) : new Date()),
         total:r.total||0, alive:r.alive||0, fc:r.fc||0, top:r.top||0,
-        snapshot:Array.isArray(r.snapshot)? r.snapshot : []};
+        lineDown:(typeof r.lineDown==="number" && isFinite(r.lineDown)? r.lineDown : null),
+        snapshot:(Array.isArray(r.snapshot)? r.snapshot : []).map(function(x){
+          if(!x || typeof x!=="object") return x;
+          var y={}; for(var k in x) y[k]=x[k];
+          y.dl=(typeof x.dl==="number" && isFinite(x.dl)? x.dl : null);
+          return y;
+        })};
     });
   }
 }
@@ -1053,7 +1064,7 @@ function flagImg(code, w, h){
   var cc = code ? String(code).toUpperCase() : "";
   if(cc==="UK") cc="GB";
   if(cc && FLAG_FILES[cc.toLowerCase()]){
-    return '<img src="'+(FLAG_DATA[cc.toLowerCase()]||'')+'" alt="'+esc(regionName(cc))+'旗帜" width="'+w+'" height="'+h+'" loading="lazy" decoding="async" style="width:'+w+'px;height:'+h+'px" onerror="this.onerror=null;this.style.display=\'none\';" />';
+    return '<img src="'+(FLAG_DATA[cc.toLowerCase()])+'" alt="'+esc(regionName(cc))+'旗帜" width="'+w+'" height="'+h+'" loading="lazy" decoding="async" style="width:'+w+'px;height:'+h+'px" onerror="this.onerror=null;this.style.display=\'none\';" />';
   }
   return '<span class="flagfb" style="width:'+w+'px;height:'+h+'px" aria-hidden="true">'+svgIcon(GLOBE_PATHS, Math.max(h-3,8))+"</span>";
 }
@@ -1695,7 +1706,18 @@ function runTest(){
     log("优选完成：共保留 "+keptCount+" 个 IP，已存入历史", "ok");
     phase="done";
     runMeta={total:targets.length, at:new Date().toISOString()};
-    runs.unshift({id:Date.now(), at:new Date(), total:targets.length, alive:aliveCount, fc:fc, top:top, snapshot:finalResults.slice(0,2000)});
+    var pxSpeedByIp={};
+    if(pxBoard && Array.isArray(pxBoard.nodes)){
+      pxBoard.nodes.forEach(function(n){ if(n && typeof n.speed_mbps==="number" && isFinite(n.speed_mbps)) pxSpeedByIp[n.ip]=n.speed_mbps; });
+    }
+    var snapWithDl=finalResults.slice(0,2000).map(function(x){
+      var y={}; for(var k in x) y[k]=x[k];
+      y.dl=(Object.prototype.hasOwnProperty.call(pxSpeedByIp, x.ip)? pxSpeedByIp[x.ip] : null);
+      return y;
+    });
+    runs.unshift({id:Date.now(), at:new Date(), total:targets.length, alive:aliveCount, fc:fc, top:top,
+      lineDown:(lineInfo && typeof lineInfo.down==="number" && isFinite(lineInfo.down)? lineInfo.down : null),
+      snapshot:snapWithDl});
     if(runs.length>20) runs.length=20;
     saveState();
     renderAll();
@@ -2135,12 +2157,17 @@ function renderProgRegions(){
 var SORT_HINTS = {quality:"延迟 + 抖动惩罚", latency:"只看中位延迟", stable:"抖动小者靠前"};
 function latClass(ms){ return ms<=200?"":(ms<=500?" mid":" bad"); }
 function isSaved(ip){ return assets.some(function(a){return a.ip===ip;}); }
-function resultRow(r, i){
+function historyDlHtml(r, run){
+  if(r && typeof r.dl==="number" && isFinite(r.dl)) return '<span class="dltag" title="该 IP 的真实下载速度（来源数据）">↓ '+r.dl+" Mbps</span>";
+  if(run && typeof run.lineDown==="number" && isFinite(run.lineDown)) return '<span class="dltag line" title="没有逐 IP 下载数据，显示那次优选时的线路下载速度">↓ '+run.lineDown+" Mbps · 线路速度</span>";
+  return '<span class="dltag na" title="没有下载速度数据">↓ —</span>';
+}
+function resultRow(r, i, dlHtml){
   var samples = r.samples && r.samples.length ? ("样本 "+r.samples.map(function(s){return s+"ms";}).join(" · ")+(r.samples.length>1?(" · 抖动 "+jitterOf(r)+"ms"):"")) : "";
   var saved=isSaved(r.ip);
   var latHtml = (r.ok && r.avg!=null)? '<span class="lat'+latClass(r.avg)+'">'+r.avg+' ms</span>' : '<span class="lat bad">超时</span>';
   var tag = r.region? '<span class="rtag">'+flagImg(r.region,18,12)+esc(r.region)+" "+esc(regionName(r.region))+"</span>" : "";
-  return '<li><span class="rank">'+(i+1)+'</span><span class="mid"><span class="ipline"><span class="ip">'+esc(r.ip)+"</span>"+tag+"</span>"
+  return '<li><span class="rank">'+(i+1)+'</span><span class="mid"><span class="ipline"><span class="ip">'+esc(r.ip)+"</span>"+(dlHtml||"")+tag+"</span>"
     +(samples?('<span class="samples" style="display:block">'+esc(samples)+"</span>"):"")
     +"</span>"+latHtml
     +'<button type="button" class="iconbtn" data-copy="'+esc(r.ip)+'" aria-label="复制 '+esc(r.ip)+'">'+ICONS.copy+"</button>"
@@ -2317,7 +2344,7 @@ function renderHistory(){
     html+='<section class="panel"><button type="button" class="runrow" data-run="'+run.id+'" aria-expanded="'+open+'"><span class="rt"><span class="a">'+esc(fmtTime(run.at))+'</span><span class="b" style="display:block">测了 '+run.total+" 个 · 存活 "+run.alive+" · 筛选并发 "+run.fc+" · 精测名额 "+run.top+'</span></span><span class="chev'+(open?" open":"")+'">'+ICONS.chev+"</span></button>";
     if(open){
       html+='<div class="rundetail"><ul class="rlist">';
-      run.snapshot.slice(0,100).forEach(function(r,i){ html+=resultRow(r,i); });
+      run.snapshot.slice(0,100).forEach(function(r,i){ html+=resultRow(r,i, historyDlHtml(r, run)); });
       html+="</ul>";
       if(run.snapshot.length>100) html+='<p class="groupnote">仅显示前 100 个，完整的在导出里</p>';
       html+='<button type="button" class="delbtn" data-rundel="'+run.id+'">'+ICONS.trash+" 删除这条记录</button></div>";
