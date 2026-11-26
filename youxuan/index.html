@@ -181,6 +181,30 @@
   .srcchip .lab{color:var(--dim)}
   .srcchip .n{font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:600}
   .srcchip .st{font-size:11px}
+  /* 数据源矩阵：每行一张深色圆角卡片，点选切换配置，右侧渐变开关控制启用 */
+  .srcmatrix-panel{background:linear-gradient(180deg,#121736,#0d1129);padding:14px}
+  @media (min-width:640px){.srcmatrix-panel{padding:16px}}
+  .matrixhead{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:2px 2px 12px}
+  .matrixhead h2{margin:0;font-size:15px;font-weight:700;letter-spacing:.02em}
+  .matrixhead .matrixhint{font-size:11px;color:var(--dim);text-align:right;line-height:1.5}
+  .srccards{display:flex;flex-direction:column;gap:10px}
+  .srccard{display:flex;align-items:flex-start;gap:12px;width:100%;text-align:left;background:linear-gradient(180deg,#181e42,#131836);border:1px solid #232a52;border-radius:18px;padding:14px;color:var(--text);cursor:pointer;font-family:inherit}
+  .srccard:active{background:#1a2049}
+  .srccard.on{border-color:var(--accent);background:linear-gradient(180deg,#1d2450,#151b3d);box-shadow:0 0 0 1px rgba(91,124,255,.35),0 6px 18px rgba(3,6,24,.35)}
+  .srccard.off{opacity:.55}
+  .srccard.off.on{opacity:.8}
+  .srcicon{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;flex:none}
+  .srcmain{flex:1;min-width:0;display:block}
+  .src-titlerow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .src-title{font-size:15.5px;font-weight:700;line-height:1.3}
+  .srcbadge{font-size:11px;font-weight:600;line-height:1.4;padding:2px 8px;border-radius:999px;flex:none}
+  .src-sub{display:block;margin-top:3px;font-size:12.5px;color:#9aa3cc;line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .src-foot{display:block;margin-top:6px;font-size:12px;color:var(--dim);font-family:ui-monospace,Menlo,Consolas,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .srcswitch{position:relative;width:50px;height:28px;min-height:28px;border-radius:999px;border:0;background:#2a3160;flex:none;margin-top:6px;padding:0;transition:background .2s;cursor:pointer}
+  .srcswitch .knob{position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.45);transition:left .2s}
+  .srcswitch[aria-checked="true"]{background:linear-gradient(90deg,var(--accent),var(--accent-2));box-shadow:0 2px 10px rgba(99,102,241,.45)}
+  .srcswitch[aria-checked="true"] .knob{left:25px}
+  .src-offnote{margin:0 0 12px;background:var(--surface-2);border-radius:8px;padding:8px 12px;font-size:13.5px;color:var(--warn)}
   .poolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
   .poolbar h2{font-size:16px;font-weight:600;margin:0}
   .poolbar .cnt{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:14px;color:var(--dim)}
@@ -419,7 +443,18 @@
         <h1>IP 来源</h1>
         <p>多类来源一起进入候选池，自动去重并保留全部来源标注；每个源的获得 / 新增 / 重复 / 无效都按真实拉取结果统计。</p>
       </div>
-      <div class="srcchips" id="srcChips"></div>
+      <section class="panel srcmatrix-panel">
+        <div class="matrixhead">
+          <h2>数据源矩阵</h2>
+          <span class="matrixhint">点选卡片切换配置 · 右侧开关控制扫描启用</span>
+        </div>
+        <div class="srccards" id="srcMatrix"></div>
+      </section>
+      <section class="panel">
+        <div class="minihead"><h2 id="srcPanelTitle">来源配置</h2></div>
+        <div class="srcbody" id="srcPanelBody" style="margin-top:12px"></div>
+        <p class="srcnotice hidden" id="srcNotice"></p>
+      </section>
       <section class="panel">
         <div class="poolbar">
           <h2>候选池</h2><span class="cnt"><span class="poolCount">0</span> 个</span>
@@ -431,11 +466,6 @@
         <label for="poolText" class="hidden">候选池 IP 列表，每行一个，可带端口和地区标注</label>
         <textarea id="poolText" rows="6" spellcheck="false" placeholder="每行一个地址，也支持 104.16.0.1:443#JP 这种带地区标注的格式" style="margin-top:12px"></textarea>
         <p class="poolnote">手动编辑也会实时解析：无效行会被忽略，重复自动去重，行内的 #地区标注会被识别。</p>
-      </section>
-      <section class="panel">
-        <div class="ptabs" role="tablist" aria-label="来源类型" id="srcTabs"></div>
-        <div class="srcbody" id="srcPanelBody"></div>
-        <p class="srcnotice hidden" id="srcNotice"></p>
       </section>
       <section class="panel">
         <h2>来源真实统计</h2>
@@ -800,6 +830,27 @@ var PANEL_TABS = [
   {kind:"cm", label:"CM IP 库"}, {kind:"github", label:"GitHub Raw"},
   {kind:"censys", label:"Censys 平台"}, {kind:"community", label:"社区聚合"}
 ];
+/* 数据源矩阵卡片的展示信息：图标、配色、标题与副标题（只管外观，来源与拉取逻辑不变） */
+var SRC_META = {
+  local:{title:"本地文件", sub:"TXT / CSV / 粘贴文本", color:"#7aa2ff", bg:"rgba(91,124,255,.18)",
+    icon:svgIcon('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h6"/>', 22)},
+  url:{title:"网络链接", sub:"远程订阅与自动更新", color:"#4fd1c5", bg:"rgba(79,209,197,.15)",
+    icon:svgIcon('<path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>', 22)},
+  fofa:{title:"FOFA 接入", sub:"API 查询 · 需配置 API Key", color:"#3ddc97", bg:"rgba(47,212,138,.15)",
+    icon:svgIcon('<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>', 22)},
+  cloudflare:{title:"Cloudflare 官方段", sub:"官方 CIDR 安全抽样", color:"#f5a84c", bg:"rgba(245,168,76,.16)",
+    icon:svgIcon('<path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>', 22)},
+  cm:{title:"CM IP 库", sub:"TXT / JSON 双格式", color:"#b18cff", bg:"rgba(139,92,246,.20)",
+    icon:svgIcon('<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>', 22)},
+  github:{title:"GitHub Raw", sub:"公开 IP 清单直读", color:"#c9d1e8", bg:"rgba(201,209,232,.13)",
+    icon:svgIcon('<path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>', 22)},
+  censys:{title:"Censys 平台", sub:"ASN 13335 主机查询", color:"#4fd1c5", bg:"rgba(79,209,197,.15)",
+    icon:svgIcon('<path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/>', 22)},
+  community:{title:"社区聚合", sub:"七个社区公开源聚合", color:"#ff8fb3", bg:"rgba(255,143,179,.15)",
+    icon:svgIcon('<circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16.5 4.6a3.5 3.5 0 0 1 0 6.8"/><path d="M21 20c0-2.8-1.9-4.8-4.5-5.3"/>', 22)}
+};
+/* 卡片右侧开关：本页会话内的启用状态，关掉的来源在配置区不可拉取 / 合并，池中已有候选不受影响 */
+var srcEnabled = {local:true, url:true, fofa:true, cloudflare:true, cm:true, github:true, censys:true, community:true};
 var STAT_ROWS = [
   {key:"local", label:"本地文件"}, {key:"paste", label:"粘贴列表"},
   {key:"url", label:"网络链接"}, {key:"fofa", label:"FOFA 接入", unconfigured:true},
@@ -1124,7 +1175,7 @@ function flagImg(code, w, h){
   var cc = code ? String(code).toUpperCase() : "";
   if(cc==="UK") cc="GB";
   if(cc && FLAG_FILES[cc.toLowerCase()]){
-    return '<img src="'+FLAG_DATA[cc.toLowerCase()]+'" alt="'+esc(regionName(cc))+'旗帜" width="'+w+'" height="'+h+'" loading="lazy" decoding="async" style="width:'+w+'px;height:'+h+'px" onerror="this.onerror=null;this.style.display=\'none\';" />';
+    return '<img src="'+(FLAG_DATA[cc.toLowerCase()]||'')+'" alt="'+esc(regionName(cc))+'旗帜" width="'+w+'" height="'+h+'" loading="lazy" decoding="async" style="width:'+w+'px;height:'+h+'px" onerror="this.onerror=null;this.style.display=\'none\';" />';
   }
   return '<span class="flagfb" style="width:'+w+'px;height:'+h+'px" aria-hidden="true">'+svgIcon(GLOBE_PATHS, Math.max(h-3,8))+"</span>";
 }
@@ -1405,25 +1456,103 @@ function renderPoolText(){
   pool.forEach(function(v){ lines.push(v.ip+(v.region?("#"+v.region):"")); });
   ta.value=lines.join("\n")+(lines.length?"\n":"");
 }
+var BADGE_STYLE = {
+  conn:"background:rgba(47,212,138,.15);color:#3ddc97",
+  wait:"background:rgba(245,184,76,.16);color:#f5b84c",
+  unconf:"background:rgba(251,77,109,.15);color:#ff8296"
+};
+function commAgg(){
+  var count=0, latest=null, anyOk=false, anyErr=false;
+  COMMUNITY_SOURCES.forEach(function(s){
+    var st=srcStats[s.key]; if(!st) return;
+    count+=st.pool_count||0;
+    if(st.updated && (!latest || st.updated>latest)) latest=st.updated;
+    if(st.status==="ok") anyOk=true;
+    if(st.status==="error") anyErr=true;
+  });
+  return {count:count, updated:latest, status:anyOk? "ok" : (anyErr? "error" : null)};
+}
+function cardBadge(kind){
+  if(kind==="community"){
+    var agg=commAgg();
+    if(agg.status==="ok") return {text:"已连接", style:BADGE_STYLE.conn};
+    if(agg.status==="error") return {text:"拉取失败", style:BADGE_STYLE.unconf};
+    return {text:COMMUNITY_SOURCES.length+" 个公开源", style:BADGE_STYLE.conn};
+  }
+  var st=srcStats[kind]||{};
+  if(kind==="fofa" || kind==="censys"){
+    if(st.status==="ok") return {text:"已连接", style:BADGE_STYLE.conn};
+    return {text:"未配置", style:BADGE_STYLE.unconf};
+  }
+  if(st.status==="ok") return {text:"已连接", style:BADGE_STYLE.conn};
+  if(st.status==="partial") return {text:"部分成功", style:BADGE_STYLE.wait};
+  if(st.status==="error") return {text:"拉取失败", style:BADGE_STYLE.unconf};
+  if(kind==="url") return {text:"未添加订阅", style:BADGE_STYLE.wait};
+  return {text:"待拉取", style:BADGE_STYLE.wait};
+}
+function cardFoot(kind){
+  var count=0, updated=null;
+  if(kind==="community"){
+    var agg=commAgg(); count=agg.count; updated=agg.updated;
+  } else if(kind==="local"){
+    ["local","paste"].forEach(function(k){
+      var st=srcStats[k]; if(!st) return;
+      count+=st.pool_count||0;
+      if(st.updated && (!updated || st.updated>updated)) updated=st.updated;
+    });
+  } else {
+    var st=srcStats[kind]||{};
+    count = st.pool_count||0;
+    updated = st.updated||null;
+  }
+  return count+" 条候选 · "+(updated? fmtTime(updated) : "—");
+}
 function renderSources(){
-  /* chips */
-  var ch="";
-  STAT_ROWS.forEach(function(row){
-    var st=srcStats[row.key];
-    var pill=statusPill(st.status, row.unconfigured);
-    ch+='<span class="srcchip"><span class="lab">'+esc(row.label)+'</span><span class="n">'+(row.unconfigured?0:st.pool_count)+'</span><span class="st" style="color:'+pill.color+'">'+pill.text+"</span></span>";
-  });
-  $("srcChips").innerHTML=ch;
-  /* tabs */
-  var th="";
+  /* 数据源矩阵卡片：点选切换配置，右侧开关单独控制启用 */
+  var mh="";
   PANEL_TABS.forEach(function(t){
-    th+='<button type="button" role="tab" class="ptab'+(srcPanel===t.kind?" on":"")+'" data-ptab="'+t.kind+'" aria-selected="'+(srcPanel===t.kind)+'">'+t.label+"</button>";
+    var meta=SRC_META[t.kind];
+    var badge=cardBadge(t.kind);
+    var enabled = srcEnabled[t.kind]!==false;
+    mh+='<div class="srccard'+(srcPanel===t.kind?" on":"")+(enabled?"":" off")+'" role="button" tabindex="0" data-srccard="'+t.kind+'" aria-pressed="'+(srcPanel===t.kind)+'" aria-label="'+esc(meta.title)+'，'+badge.text+'">'
+      +'<span class="srcicon" style="background:'+meta.bg+';color:'+meta.color+'">'+meta.icon+'</span>'
+      +'<span class="srcmain"><span class="src-titlerow"><span class="src-title">'+esc(meta.title)+'</span><span class="srcbadge" style="'+badge.style+'">'+badge.text+'</span></span>'
+      +'<span class="src-sub">'+esc(meta.sub)+'</span>'
+      +'<span class="src-foot">'+esc(cardFoot(t.kind))+'</span></span>'
+      +'<button type="button" class="srcswitch" role="switch" aria-checked="'+enabled+'" aria-label="启用'+esc(meta.title)+'" data-srcswitch="'+t.kind+'"><span class="knob"></span></button>'
+      +'</div>';
   });
-  $("srcTabs").innerHTML=th;
-  $("srcTabs").querySelectorAll("[data-ptab]").forEach(function(b){
-    b.addEventListener("click", function(){ srcPanel=b.getAttribute("data-ptab"); renderSources(); });
+  $("srcMatrix").innerHTML=mh;
+  $("srcMatrix").querySelectorAll("[data-srccard]").forEach(function(card){
+    function pick(){ srcPanel=card.getAttribute("data-srccard"); renderSources(); }
+    card.addEventListener("click", function(e){
+      if(e.target.closest("[data-srcswitch]")) return;
+      pick();
+    });
+    card.addEventListener("keydown", function(e){
+      if(e.target.closest("[data-srcswitch]")) return;
+      if(e.key==="Enter" || e.key===" "){ e.preventDefault(); pick(); }
+    });
   });
+  $("srcMatrix").querySelectorAll("[data-srcswitch]").forEach(function(sw){
+    sw.addEventListener("click", function(e){
+      e.stopPropagation();
+      var kind=sw.getAttribute("data-srcswitch");
+      srcEnabled[kind]=!(srcEnabled[kind]!==false);
+      renderSources();
+    });
+  });
+  var titleEl=$("srcPanelTitle");
+  if(titleEl) titleEl.textContent=SRC_META[srcPanel].title+" · 配置";
   renderSrcPanel();
+  if(srcEnabled[srcPanel]===false){
+    var bodyEl=$("srcPanelBody");
+    var note=document.createElement("p");
+    note.className="src-offnote";
+    note.textContent="该来源已关闭：打开卡片右侧开关后可继续拉取 / 合并；候选池里已有的 IP 不受影响。";
+    bodyEl.insertBefore(note, bodyEl.firstChild);
+    bodyEl.querySelectorAll("button, input, textarea, select").forEach(function(el){ el.disabled=true; });
+  }
   /* stats */
   var sh="";
   STAT_ROWS.forEach(function(row){
