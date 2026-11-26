@@ -254,6 +254,12 @@
   .rlist .ip{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:15px;word-break:break-all}
   .rtag{display:inline-flex;align-items:center;gap:4px;border-radius:6px;background:var(--surface-3);padding:2px 6px;font-size:11px;font-weight:500;color:var(--dim);flex:none}
   .rtag.geo{background:transparent;border:1px dashed var(--border);color:var(--text)}
+  .rtag.premium{background:rgba(47,212,138,.13);color:#3ddc97;border:1px solid rgba(47,212,138,.45);font-weight:600}
+  .rtag.asn{font-family:ui-monospace,Menlo,Consolas,monospace}
+  .premiumbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+  .chip.premium-on{background:rgba(47,212,138,.16);border-color:var(--good);color:#3ddc97;font-weight:600}
+  .premium-note{margin:0;font-size:12.5px;line-height:1.7;color:var(--dim);background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px 14px}
+  .premium-note b{color:var(--text)}
   .rtag img{width:18px;height:12px;object-fit:contain;display:block;border-radius:2px}
   .dltag{display:inline-flex;align-items:center;border-radius:6px;background:var(--surface-2);padding:2px 6px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;font-weight:600;color:var(--text);flex:none;white-space:nowrap}
   .dltag.line{color:var(--dim);font-weight:500}
@@ -409,7 +415,7 @@
             <input type="text" id="rangeSpec" placeholder="全部" style="font-family:inherit" /></div>
         </div>
         <p class="formerr hidden" id="formError" role="alert"></p>
-        <p class="paramsnote">测速走 HTTPS 443 在本机浏览器里跑，端口只用于导出格式；浏览器读不到逐 IP 的落地节点和下载速度，地区来自来源标注，下载/上传速度看上面的线路测速。测速时别开代理/VPN。</p>
+        <p class="paramsnote">测速走 HTTPS 443 在本机浏览器里跑，端口只用于导出格式；浏览器读不到逐 IP 的落地节点和下载速度，地区来自来源标注，下载/上传速度看上面的线路测速。测速时别开代理/VPN。优选后地区识别会同时拿到 ASN / 运营商，命中移动 AS58807、联通 AS9929、电信 AS4809 的会在排名里标「优质线路」并可筛选；那是按 ASN 打的标签，不是路由追踪结果。</p>
       </section>
 
       <div class="stats">
@@ -495,6 +501,7 @@
             <select id="pxSort"><option value="score" selected>来源评分</option><option value="tcp">来源 TCP</option><option value="tls">来源 TLS</option><option value="speed">来源下载</option><option value="local">本地实测</option></select></div>
           <button type="button" class="chip" id="pxDirBtn" aria-label="切换升序 / 降序">降序 ↓</button>
           <button type="button" class="chip" id="pxTlsToggle" aria-pressed="false">只看 TLS 可用</button>
+          <button type="button" class="chip" id="pxPremiumToggle" aria-pressed="false">只看优质线路</button>
           <span class="pxacts">
             <button type="button" class="btn grad" id="pxFetch">拉取榜单</button>
             <button type="button" class="btn" id="pxTest" disabled>本地实测</button>
@@ -561,6 +568,11 @@
         <button type="button" role="tab" data-mode="speed">高下载</button>
       </div>
       <p class="seghint" id="sortHint">延迟 + 抖动惩罚</p>
+      <div class="premiumbar">
+        <button type="button" class="chip" id="premiumToggle" aria-pressed="false">优质线路</button>
+        <span style="font-size:12.5px;color:var(--dim)" id="premiumCount">命中 AS58807 / AS9929 / AS4809 的 IP：—</span>
+      </div>
+      <p class="premium-note"><b>线路标签按 ASN 标，不是路由追踪结果。</b>标签来自优选后地区识别接口返回的 ASN / 运营商（ipwho.is、备用 ipapi.co），或该 IP 在反代榜单里自带的 ASN / 运营商字段；ASN 命中 AS58807（中国移动 CMI）、AS9929（中国联通 CUII）、AS4809（中国电信 CN2）才标「优质线路」。浏览器做不了 traceroute，查不到流量实际经过哪些 AS，这里的标签只说明这个 IP 归属哪个 ASN；仅凭 AS4809 也分不出 CN2 GT 还是 GIA。Cloudflare 官方段 IP 的 ASN 基本是 AS13335（Cloudflare 本身），所以官方段里命中很少是正常的。想真实测去程路由有没有经过这三个 AS，请在电脑上跑 Go 工具 ip-Batch-Track（基于 NTrace-core 的批量线路追踪筛选工具）实测。</p>
       <div class="filterchips" id="resultFilters"></div>
       <div id="rankingEmpty" class="empty-panel">
         <p>还没有测速结果。先去总览跑一次优选。</p>
@@ -603,8 +615,13 @@
             <label class="expchip"><input type="checkbox" id="expF-lat" /> 延迟</label>
             <label class="expchip"><input type="checkbox" id="expF-colo" /> colo</label>
             <label class="expchip"><input type="checkbox" id="expF-src" /> 来源</label>
+            <label class="expchip"><input type="checkbox" id="expF-line" /> 线路</label>
           </div>
           <p class="sub2">效果示例：104.16.0.1:443#优选 | 日本东京 | 下载 7.86MB/s | 23ms。城市来自优选后的地区识别；速度只写反代榜单里有服务器端实测值的 IP（Mbps 换算成 MB/s），colo 只写榜单里带机房代码的 IP；没有真实数据的字段自动省略，不编造。最低下载速度填了以后，没有榜单实测速度的 IP 会被过滤掉（无法证明达标）。</p>
+        </div>
+        <div style="margin-top:16px">
+          <label class="expchip"><input type="checkbox" id="expPremiumOnly" /> 仅导出优质线路（移动 AS58807 / 联通 AS9929 / 电信 AS4809）</label>
+          <p class="sub2">按地区识别拿到的 ASN 判断；没查到 ASN 的 IP 无法证明命中，会被过滤掉。命中数少甚至为 0 是正常的：Cloudflare 官方段的 ASN 基本是 AS13335（Cloudflare 本身）。</p>
         </div>
         <div style="margin-top:16px">
           <span style="font-size:12px;color:var(--dim)">导出地区</span>
@@ -671,6 +688,10 @@
       <section class="panel principle">
         <h2>测速原理</h2>
         <p>点「开始优选」后，测速在你这台手机/电脑的浏览器里跑：对每个候选 IP 发起一次 HTTPS 请求并计时，所以测出来的是你本地网络的真实相对延迟。计时是发起 HTTPS 请求到收到响应或连接失败为止的耗时，只能作相对快慢比较，不是标准 ping。第一轮按筛选并发快速过一遍；精测名单按地区取前几名再补全局最快的若干个，每 IP 共测 3 次取中位数，并用样本极差算抖动。综合质量分 = 中位延迟 + 抖动 × 0.5。浏览器受证书/SNI 限制读不到逐 IP 的落地节点（colo），地区来自各来源的 #标注；没有标注的 IP 会在优选完成后，自动向第三方 IP 归属库查询归属地（主查 ipwho.is、备用 ipapi.co），查到的在结果行内以国旗加「识别」标记显示，查不到的保持未知地区，识别失败不影响排名和保留名单。这类归属地数据不是 Cloudflare 官方机房数据：国家/地区一级可信度较高，城市只是大致位置，而且 Cloudflare 是任播网络，归属地不等于你实际接入的机房位置，只能作参考。也做不了逐 IP 下载测速，总览的「线路测速」是整条线路经 Cloudflare 官方测速端点的实测下载和上传速度。测速时别开代理/VPN，否则测的是代理线路。这个静态版没有后台，设置、历史和资产保存在本机浏览器的 localStorage 里，刷新或关闭后重新打开会自动恢复（历史只保留最近 8 次）；换设备、换浏览器或清掉浏览器数据就会丢失。</p>
+      </section>
+      <section class="panel principle">
+        <h2>线路标签与「优质线路」筛选</h2>
+        <p>地区排名和反代榜单里的运营商 / 线路标签，来自地区识别接口（ipwho.is / ipapi.co）返回的 ASN 与运营商字段，或反代榜单自带的 ASN / 运营商字段：AS58807 标中国移动 CMI、AS9929 标中国联通 CUII、AS4809 标中国电信 CN2，命中这三个才算「优质线路」。这只是按 IP 归属 ASN 打的标签，不是路由追踪：浏览器没有权限做 traceroute，看不到流量实际经过哪些 AS，也分不出 AS4809 到底是 CN2 GT 还是 GIA。想真实验证去程路由是否经过这三个 AS，需要在电脑上运行基于 NTrace-core 的 Go 工具 ip-Batch-Track 做批量追踪；网页版做不到，也不会编造追踪结果。</p>
       </section>
     </div>
 
@@ -906,6 +927,7 @@ var pxPage = 1, pxPageSize = 100;
 var pxLocal = {}; /* ip -> 本地实测 ms | null（超时） */
 var pxTesting = false, pxTestDone = 0, pxTestTotal = 0, pxAbort = null;
 var pxNotice = null, pxLoading = false, pxFetchedOnce = false;
+var premiumOnly = false; var expPremiumOnly = false; var pxPremiumOnly = false;
 var pasteDraft = "", urlDraft = "";
 
 /* ================= 本地保存（localStorage） =================
@@ -933,11 +955,12 @@ function collectState(){
     },
     regions:Array.from(selectedRegions),
     sortMode:sortMode,
+    premiumOnly:premiumOnly,
     expSel:Array.from(exportRegionSel),
     exp:{format:$("expFormat").value, per:+$("expPer").value, cap:$("expCap").value, remark:$("expRemark").value,
-      minDl:$("expMinDl").value, template:$("expTemplate").value,
-      fields:{city:expFieldOn("city"), speed:expFieldOn("speed"), lat:expFieldOn("lat"), colo:expFieldOn("colo"), src:expFieldOn("src")}},
-    px:{size:pxSize, sort:pxSort, dir:pxSortDir, tls:pxOnlyTls, pageSize:pxPageSize},
+      minDl:$("expMinDl").value, template:$("expTemplate").value, premiumOnly:expPremiumOnly,
+      fields:{city:expFieldOn("city"), speed:expFieldOn("speed"), lat:expFieldOn("lat"), colo:expFieldOn("colo"), src:expFieldOn("src"), line:expFieldOn("line")}},
+    px:{size:pxSize, sort:pxSort, dir:pxSortDir, tls:pxOnlyTls, premium:pxPremiumOnly, pageSize:pxPageSize},
     assets:assets.slice(0, ASSETS_KEEP).map(function(a){
       return {ip:a.ip, note:a.note||"", best:(a.best==null? null : a.best), at:(a.at instanceof Date? a.at.toISOString() : a.at)};
     }),
@@ -947,7 +970,7 @@ function collectState(){
         snapshot:(r.snapshot||[]).slice(0, HISTORY_SNAP_KEEP).map(function(x){
           return {ip:x.ip, region:x.region||null, ok:!!x.ok, avg:(x.avg==null? null : x.avg), samples:x.samples||[],
             dl:(typeof x.dl==="number" && isFinite(x.dl)? x.dl : null),
-            geo:(x.geo && typeof x.geo.cc==="string"? {cc:x.geo.cc, city:x.geo.city||"", region:x.geo.region||"", org:x.geo.org||"", src:x.geo.src||""} : null)};
+            geo:(x.geo && typeof x.geo.cc==="string"? {cc:x.geo.cc, city:x.geo.city||"", region:x.geo.region||"", org:x.geo.org||"", src:x.geo.src||"", asn:x.geo.asn||""} : null)};
         })};
     })
   };
@@ -990,6 +1013,7 @@ function loadState(){
     if(sel.length) selectedRegions=new Set(sel);
   }
   if(d.sortMode==="quality" || d.sortMode==="latency" || d.sortMode==="speed") sortMode=d.sortMode;
+  if(typeof d.premiumOnly==="boolean") premiumOnly=d.premiumOnly;
   if(Array.isArray(d.expSel)){
     var esel=d.expSel.filter(function(c){ return validCodes[c]; });
     if(esel.length) exportRegionSel=new Set(esel);
@@ -1000,9 +1024,10 @@ function loadState(){
   if(typeof ex.cap==="string") $("expCap").value=ex.cap;
   if(ex.remark==="region" || ex.remark==="latency" || ex.remark==="both") $("expRemark").value=ex.remark;
   if(typeof ex.minDl==="string") $("expMinDl").value=ex.minDl;
+  if(typeof ex.premiumOnly==="boolean"){ expPremiumOnly=ex.premiumOnly; var epc=$("expPremiumOnly"); if(epc) epc.checked=expPremiumOnly; }
   if(typeof ex.template==="string") $("expTemplate").value=ex.template;
   if(ex.fields && typeof ex.fields==="object"){
-    ["city","speed","lat","colo","src"].forEach(function(k){
+    ["city","speed","lat","colo","src","line"].forEach(function(k){
       var el=$("expF-"+k); if(el) el.checked=!!ex.fields[k];
     });
   }
@@ -1011,6 +1036,7 @@ function loadState(){
   if(px.sort==="score" || px.sort==="tcp" || px.sort==="tls" || px.sort==="speed" || px.sort==="local") pxSort=px.sort;
   if(px.dir==="asc" || px.dir==="desc") pxSortDir=px.dir;
   if(typeof px.tls==="boolean") pxOnlyTls=px.tls;
+  if(typeof px.premium==="boolean") pxPremiumOnly=px.premium;
   if(px.pageSize===50 || px.pageSize===100 || px.pageSize===200) pxPageSize=px.pageSize;
   if(Array.isArray(d.assets)){
     assets=d.assets.filter(function(a){ return a && typeof a.ip==="string" && isIPv4(a.ip); }).slice(0, ASSETS_KEEP).map(function(a){
@@ -1032,7 +1058,7 @@ function loadState(){
             avg:(typeof x.avg==="number" && isFinite(x.avg)? x.avg : null),
             samples:(Array.isArray(x.samples)? x.samples.filter(function(n){ return typeof n==="number" && isFinite(n); }) : []),
             dl:(typeof x.dl==="number" && isFinite(x.dl)? x.dl : null),
-            geo:(x.geo && typeof x.geo==="object"? geoNormalize(x.geo.cc, x.geo.city, x.geo.region, x.geo.org, x.geo.src) : null)};
+            geo:(x.geo && typeof x.geo==="object"? geoNormalize(x.geo.cc, x.geo.city, x.geo.region, x.geo.org, x.geo.src, x.geo.asn) : null)};
         })};
     });
   }
@@ -1051,8 +1077,9 @@ function resetDefaults(){
   sortMode="quality"; resultFilter="ALL";
   $("expFormat").value="txt"; setSelectValue($("expPer"), 20); $("expCap").value=""; $("expRemark").value="region";
   $("expMinDl").value=""; $("expTemplate").value="";
-  ["city","speed","lat","colo","src"].forEach(function(k){ var el=$("expF-"+k); if(el) el.checked=false; });
+  ["city","speed","lat","colo","src","line"].forEach(function(k){ var el=$("expF-"+k); if(el) el.checked=false; });
   pxSize=500; pxSort="score"; pxSortDir="desc"; pxOnlyTls=false; pxPageSize=100; pxPage=1;
+  premiumOnly=false; expPremiumOnly=false; pxPremiumOnly=false; var epc2=$("expPremiumOnly"); if(epc2) epc2.checked=false;
   syncSettingsInputs();
   renderAll();
   saveState();
@@ -1966,29 +1993,72 @@ function geoFetchJson(url, timeoutMs){
     return res.json();
   }).catch(function(e){ clearTimeout(timer); throw e; });
 }
-function geoNormalize(cc, city, region, org, src){
+/* ================= 优质线路（按 ASN 打标签，借鉴 ip-Batch-Track 的三网筛选思路） =================
+   ip-Batch-Track 是在电脑上用 NTrace-core 做真实路由追踪、看去程是否经过目标 AS；
+   浏览器做不了 traceroute，这里只能退一步：用地区识别接口返回的 ASN / 运营商字段
+   （或反代榜单自带的 ASN / 运营商字段）给 IP 打归属标签，ASN 命中下面三个才算
+   「优质线路」。标签只说明 IP 归属哪个 ASN，不代表流量实际经过该 AS，更不是追踪结果。 */
+function parseAsn(raw){
+  if(raw==null) return null;
+  if(typeof raw==="number" && isFinite(raw) && raw>0) return "AS"+Math.round(raw);
+  var s=String(raw).trim().toUpperCase();
+  if(!s) return null;
+  var m=/AS\s*(\d{1,10})/.exec(s);
+  if(m) return "AS"+m[1];
+  if(/^\d{1,10}$/.test(s)) return "AS"+s;
+  return null;
+}
+var PREMIUM_BY_ASN = {
+  "AS58807":{carrier:"中国移动", line:"CMI", short:"移动"},
+  "AS9929":{carrier:"中国联通", line:"CUII", short:"联通"},
+  "AS4809":{carrier:"中国电信", line:"CN2", short:"电信"}
+};
+function premiumInfoOf(asnNorm){
+  if(!asnNorm || !PREMIUM_BY_ASN[asnNorm]) return null;
+  var d=PREMIUM_BY_ASN[asnNorm];
+  return {asn:asnNorm, carrier:d.carrier, line:d.line, short:d.short};
+}
+function resultAsn(r){
+  if(r && r.geo && r.geo.asn){ var a=parseAsn(r.geo.asn); if(a) return a; }
+  return r? pxAsnOf(r.ip) : null;
+}
+function resultOrg(r){
+  if(r && r.geo && r.geo.org) return r.geo.org;
+  return r? pxOrgOf(r.ip) : null;
+}
+function premiumOfResult(r){ return premiumInfoOf(resultAsn(r)); }
+function premiumOfPx(n){ return premiumInfoOf(parseAsn(n? n.asn : null)); }
+function lineTagsHtml(r){
+  var a=resultAsn(r);
+  if(!a) return "";
+  var info=premiumInfoOf(a);
+  if(info) return '<span class="rtag premium" title="优质线路：该 IP 归属 ASN 命中三网优质 AS（移动 AS58807 / 联通 AS9929 / 电信 AS4809）。依据是地区识别或反代榜单的 ASN/运营商字段，不是路由追踪结果">'+esc(info.short+" · "+a+" · "+info.line+" · 优质线路")+"</span>";
+  var org=resultOrg(r);
+  return '<span class="rtag asn" title="该 IP 归属的 ASN / 运营商（来源：地区识别接口或反代榜单字段，不是路由追踪结果）'+(org? ("："+esc(org)) : "")+'">'+esc(a)+"</span>";
+}
+function geoNormalize(cc, city, region, org, src, asn){
   cc = cc? String(cc).toUpperCase() : "";
   if(cc==="UK") cc="GB";
   if(!/^[A-Z]{2}$/.test(cc) || !REGION_NAMES[cc]) return null;
-  return {cc:cc, city:city||"", region:region||"", org:org||"", src:src};
+  return {cc:cc, city:city||"", region:region||"", org:org||"", src:src, asn:parseAsn(asn)||""};
 }
 function geoLookup(ip){
   return geoFetchJson("https://ipwho.is/"+encodeURIComponent(ip), 6000).then(function(j){
     if(j && j.success!==false && j.country_code){
-      var g=geoNormalize(j.country_code, j.city, j.region, j.connection? (j.connection.isp||j.connection.org||"") : "", "ipwho.is");
+      var g=geoNormalize(j.country_code, j.city, j.region, j.connection? (j.connection.isp||j.connection.org||"") : "", "ipwho.is", j.connection? j.connection.asn : null);
       if(g) return g;
     }
     throw new Error("no result");
   }).catch(function(){
     return geoFetchJson("https://ipapi.co/"+encodeURIComponent(ip)+"/json/", 6000).then(function(j){
-      if(j && !j.error && j.country_code) return geoNormalize(j.country_code, j.city, j.region, j.org, "ipapi.co");
+      if(j && !j.error && j.country_code) return geoNormalize(j.country_code, j.city, j.region, j.org, "ipapi.co", j.asn);
       return null;
     }).catch(function(){ return null; });
   });
 }
 function geoTagHtml(geo){
   var label = geo.cc+" "+regionName(geo.cc)+(geo.city? (" · "+geo.city) : "");
-  var title = "归属地识别 · 来源："+geo.src+"（第三方 IP 归属库，非 Cloudflare 官方机房数据）；国家/地区可信度较高，城市为大致位置；Cloudflare 为任播网络，不代表实际接入的机房"+(geo.org? ("；运营商/机房："+geo.org) : "");
+  var title = "归属地识别 · 来源："+geo.src+"（第三方 IP 归属库，非 Cloudflare 官方机房数据）；国家/地区可信度较高，城市为大致位置；Cloudflare 为任播网络，不代表实际接入的机房"+(geo.org? ("；运营商/机房："+geo.org) : "")+(geo.asn? ("；ASN："+geo.asn) : "");
   return '<span class="rtag geo" title="'+esc(title)+'">'+flagImg(geo.cc,18,12)+esc(label)+" · 识别</span>";
 }
 function applyGeoToRuns(){
@@ -2038,7 +2108,8 @@ function identifyUnknownRegions(list, keptIps){
     applyGeoToRuns();
     saveState();
     renderRanking(); renderHistory();
-    log("地区识别完成：查到 "+hitN+" 个，仍未知 "+(targets.length-hitN)+" 个。归属地来自第三方 IP 库，国家级较可信、城市仅供参考，不代表实际接入的 Cloudflare 机房", hitN>0? "ok":"warn");
+    var premN=(list||[]).filter(function(r){ return r && r.ok && premiumOfResult(r); }).length;
+    log("地区识别完成：查到 "+hitN+" 个，仍未知 "+(targets.length-hitN)+" 个，其中优质线路（AS58807 / AS9929 / AS4809）命中 "+premN+" 个。归属地来自第三方 IP 库，国家级较可信、城市仅供参考，不代表实际接入的 Cloudflare 机房", hitN>0? "ok":"warn");
   }).catch(function(){
     /* 兜底：链路万一抛错也要把 geoBusy 置回 false，否则之后每轮识别都会被开头的 if(geoBusy) 挡掉，再也不识别 */
     geoBusy=false;
@@ -2242,7 +2313,7 @@ function pxSetSort(field, toggleIfSame){
 }
 function pxFiltered(){
   /* 只对副本排序，不动 pxBoard.nodes 本身的顺序和数据 */
-  var arr=(pxBoard? pxBoard.nodes : []).filter(function(n){ return !pxOnlyTls || n.tls_ok; });
+  var arr=(pxBoard? pxBoard.nodes : []).filter(function(n){ return (!pxOnlyTls || n.tls_ok) && (!pxPremiumOnly || !!premiumOfPx(n)); });
   var dir=pxSortDir==="asc"? 1 : -1;
   arr.sort(function(a,b){
     var va=pxSortValue(a, pxSort), vb=pxSortValue(b, pxSort);
@@ -2267,12 +2338,14 @@ function pxRow(n, idx){
   var tag='<span class="rtag">'+flagImg(n.cc,18,12)+(n.cc? (esc(n.cc)+" "+esc(regionName(n.cc))) : "—")+(n.city? (" · "+esc(n.city)) : "")+"</span>";
   var coloTag=n.colo? '<span class="rtag mono">CF '+esc(n.colo)+"</span>" : "";
   var tlsTag=!n.tls_ok? '<span class="rtag" style="color:var(--bad)">TLS 不可用</span>' : "";
+  var prem=premiumOfPx(n);
+  var premTag=prem? '<span class="rtag premium" title="优质线路：该节点榜单自带的 ASN 命中三网优质 AS（移动 AS58807 / 联通 AS9929 / 电信 AS4809）；这是按 ASN 归属打的标签，不是路由追踪结果">'+esc(prem.short+" · "+prem.asn+" · "+prem.line+" · 优质")+"</span>" : "";
   var subRaw=(n.asn||"")+((n.asn && n.org)? " · " : "")+(n.org||"");
   var sub=(subRaw? subRaw+" · " : "")+"最后检测 "+fmtAgo(n.last_check);
   return "<li>"
     +'<div style="display:flex;align-items:center;gap:8px">'
     +'<span class="rank">'+idx+"</span>"
-    +'<span style="min-width:0;flex:1"><span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="mono" style="font-size:15px;word-break:break-all">'+esc(key)+"</span>"+tag+coloTag+tlsTag+"</span>"
+    +'<span style="min-width:0;flex:1"><span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="mono" style="font-size:15px;word-break:break-all">'+esc(key)+"</span>"+tag+coloTag+tlsTag+premTag+"</span>"
     +'<span style="display:block;font-size:12px;color:var(--dim);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(sub)+"</span></span>"
     +'<button type="button" class="iconbtn" data-pxcopy="'+esc(key)+'" aria-label="复制 '+esc(key)+'">'+ICONS.copy+"</button>"
     +'<button type="button" class="iconbtn'+(saved?" saved":"")+'" data-pxsave="'+esc(n.ip)+'" data-pxcc="'+esc(n.cc||"")+'" aria-label="收藏 '+esc(n.ip)+'" aria-pressed="'+saved+'">'+ICONS.heart(saved)+"</button></div>"
@@ -2312,6 +2385,13 @@ function renderProxy(){
   var tlsBtn=$("pxTlsToggle");
   tlsBtn.classList.toggle("on", pxOnlyTls);
   tlsBtn.setAttribute("aria-pressed", pxOnlyTls? "true":"false");
+  var premBtn=$("pxPremiumToggle");
+  if(premBtn){
+    premBtn.classList.toggle("on", pxPremiumOnly);
+    premBtn.classList.toggle("premium-on", pxPremiumOnly);
+    premBtn.setAttribute("aria-pressed", pxPremiumOnly? "true":"false");
+    if(pxBoard) premBtn.title="榜单中命中 AS58807 / AS9929 / AS4809 的节点："+pxBoard.nodes.filter(function(n){ return !!premiumOfPx(n); }).length+" 个（按榜单自带 ASN 判断）";
+  }
   var fetchBtn=$("pxFetch");
   fetchBtn.disabled=pxLoading;
   fetchBtn.textContent=pxLoading? "拉取中…" : "拉取榜单";
@@ -2387,7 +2467,7 @@ function renderProxy(){
   if(pxPage>pageCount) pxPage=pageCount;
   if(pxLoading && !pxBoard) body.innerHTML='<p style="padding:32px 0;text-align:center;color:var(--dim);font-size:14px;margin:0">正在拉取榜单…</p>';
   else if(!pxBoard) body.innerHTML='<p style="padding:32px 0;text-align:center;color:var(--dim);font-size:14px;margin:0">还没拉到榜单，点上方「拉取榜单」重试。</p>';
-  else if(!filtered.length) body.innerHTML='<p style="padding:32px 0;text-align:center;color:var(--dim);font-size:14px;margin:0">当前筛选下没有节点，换个属地或关掉「只看 TLS 可用」。</p>';
+  else if(!filtered.length) body.innerHTML='<p style="padding:32px 0;text-align:center;color:var(--dim);font-size:14px;margin:0">当前筛选下没有节点，换个属地，或关掉「只看 TLS 可用」/「只看优质线路」。优质线路按榜单自带 ASN 判断，命中这三个 AS 的节点本来就少，没有是正常的。</p>';
   else {
     var rows=filtered.slice((pxPage-1)*pxPageSize, pxPage*pxPageSize);
     var lh='<ul class="pxlist">';
@@ -2563,23 +2643,37 @@ function historyDlHtml(r, run){
 /* 排名行里的下载速度，和历史同一口径：浏览器测不了逐 IP 真实下载，
    只有该 IP 恰好在反代榜单里带了服务器端实测速度时才显示真实值，
    否则显示本次线路速度并标注，再没有就显 —，不编造逐 IP 速度 */
-var pxSpeedCache={board:null, map:{}, colo:{}};
+var pxSpeedCache={board:null, map:{}, colo:{}, asn:{}, org:{}};
 function pxSpeedOf(ip){
   if(!pxBoard || !Array.isArray(pxBoard.nodes)) return null;
   if(pxSpeedCache.board!==pxBoard){
-    var m={}, cm={};
+    var m={}, cm={}, am={}, om={};
     pxBoard.nodes.forEach(function(n){
       if(!n) return;
       if(typeof n.speed_mbps==="number" && isFinite(n.speed_mbps)) m[n.ip]=n.speed_mbps;
       if(n.colo) cm[n.ip]=n.colo;
+      var pa=parseAsn(n.asn); if(pa) am[n.ip]=pa;
+      if(n.org) om[n.ip]=n.org;
     });
-    pxSpeedCache={board:pxBoard, map:m, colo:cm};
+    pxSpeedCache={board:pxBoard, map:m, colo:cm, asn:am, org:om};
   }
   return Object.prototype.hasOwnProperty.call(pxSpeedCache.map, ip)? pxSpeedCache.map[ip] : null;
 }
 function pxColoOf(ip){
   pxSpeedOf(ip); /* 顺带把缓存建好 */
   return Object.prototype.hasOwnProperty.call(pxSpeedCache.colo, ip)? pxSpeedCache.colo[ip] : null;
+}
+function pxAsnOf(ip){
+  if(!ip) return null;
+  pxSpeedOf(ip);
+  var m=pxSpeedCache.asn||{};
+  return Object.prototype.hasOwnProperty.call(m, ip)? m[ip] : null;
+}
+function pxOrgOf(ip){
+  if(!ip) return null;
+  pxSpeedOf(ip);
+  var m=pxSpeedCache.org||{};
+  return Object.prototype.hasOwnProperty.call(m, ip)? m[ip] : null;
 }
 function rankDlHtml(r){
   var v=pxSpeedOf(r.ip);
@@ -2592,7 +2686,7 @@ function resultRow(r, i, dlHtml){
   var saved=isSaved(r.ip);
   var latHtml = (r.ok && r.avg!=null)? '<span class="lat'+latClass(r.avg)+'">'+r.avg+' ms</span>' : '<span class="lat bad">超时</span>';
   var tag = r.region? '<span class="rtag">'+flagImg(r.region,18,12)+esc(r.region)+" "+esc(regionName(r.region))+(r.geo && r.geo.city? (" · "+esc(r.geo.city)) : "")+"</span>" : (r.geo && r.geo.cc? geoTagHtml(r.geo) : "");
-  return '<li><span class="rank">'+(i+1)+'</span><span class="mid"><span class="ipline"><span class="ip">'+esc(r.ip)+"</span>"+(dlHtml||"")+tag+"</span>"
+  return '<li><span class="rank">'+(i+1)+'</span><span class="mid"><span class="ipline"><span class="ip">'+esc(r.ip)+"</span>"+(dlHtml||"")+tag+lineTagsHtml(r)+"</span>"
     +(samples?('<span class="samples" style="display:block">'+esc(samples)+"</span>"):"")
     +"</span>"+latHtml
     +'<button type="button" class="iconbtn" data-copy="'+esc(r.ip)+'" aria-label="复制 '+esc(r.ip)+'">'+ICONS.copy+"</button>"
@@ -2617,11 +2711,30 @@ function renderRanking(){
     b.classList.toggle("on", b.getAttribute("data-mode")===sortMode);
     b.setAttribute("aria-selected", b.getAttribute("data-mode")===sortMode ? "true":"false");
   });
+  var pTgl=$("premiumToggle");
+  if(pTgl){ pTgl.classList.toggle("premium-on", premiumOnly); pTgl.setAttribute("aria-pressed", premiumOnly? "true":"false"); }
+  var premTotal=results.filter(function(r){ return r.ok && premiumOfResult(r); }).length;
+  var asnTotal=results.filter(function(r){ return r.ok && resultAsn(r); }).length;
+  var pcEl=$("premiumCount");
+  if(pcEl) pcEl.textContent = results.length? ("命中 AS58807 / AS9929 / AS4809 的 IP："+premTotal+" 个（已识别出 ASN 的 "+asnTotal+" 个）"+(premiumOnly? " · 已开启只看优质线路" : "")) : "命中 AS58807 / AS9929 / AS4809 的 IP：—";
   var keep=+$("keepPer").value, cap=+$("latCap").value;
   $("rankingSub").textContent="当前显示的是本轮优选结果。分组按来源标注（浏览器读不到真实落地节点）；未标注的 IP 在优选完成后会自动查归属地，查到的在行内以国旗加「识别」标记显示（来源为第三方 IP 归属库，国家级较可信、城市仅供参考，不代表实际机房，也不改变分组和名次），查不到的保持未知地区。行内 ↓ 是下载速度：该 IP 在反代榜单里有服务器端实测值的显示实测值，否则显示本次线路速度并标「线路速度」，都没有就显 —（浏览器测不了逐 IP 真实下载，不编造）。名次按所选方式在每个地区内排序，每地区保留前 "+keep+" 名"+(cap>0?("，延迟上限 "+cap+"ms"):"")+"。";
+  $("rankingSub").textContent += " 行内绿色标签是按 ASN 命中的优质线路（移动 AS58807 / 联通 AS9929 / 电信 AS4809），灰色标签是已识别但未命中的 ASN；标签来自地区识别拿到的 ASN / 运营商字段，不是路由追踪结果。";
   var groups=computeGroups(results, selectedRegions, keep, cap, sortMode);
   $("rankingEmpty").classList.toggle("hidden", groups.length>0);
   if(!groups.length){ $("resultFilters").innerHTML=""; $("rankingGroups").innerHTML=""; return; }
+  if(premiumOnly){
+    groups=groups.map(function(g){
+      return {key:g.key, name:g.name, included:g.included, avgLatency:g.avgLatency,
+        alive:g.alive.filter(function(r){ return !!premiumOfResult(r); }),
+        kept:g.kept.filter(function(r){ return !!premiumOfResult(r); })};
+    }).filter(function(g){ return g.alive.length>0; });
+    if(!groups.length){
+      $("resultFilters").innerHTML="";
+      $("rankingGroups").innerHTML='<div class="empty-panel"><p>当前结果里没有命中优质线路的 IP（AS58807 / AS9929 / AS4809）。已识别出 ASN 的 IP 里，Cloudflare 官方段基本是 AS13335，不命中是正常的；没命中不代表线路不好，只是 ASN 不在这三个里。关掉「优质线路」可看全部结果。</p></div>';
+      return;
+    }
+  }
   var fh="";
   if(groups.length>1){
     fh='<button type="button" class="chip'+(resultFilter==="ALL"?" on":"")+'" data-f="ALL">全部地区</button>';
@@ -2658,6 +2771,7 @@ function exportKept(){
   var groups=computeGroups(results, exportRegionSel, per, cap, sortMode);
   var kept=[];
   groups.forEach(function(g){ kept=kept.concat(g.kept); });
+  if(expPremiumOnly) kept=kept.filter(function(r){ return !!premiumOfResult(r); });
   return sortAlive(kept, sortMode);
 }
 function effCc(r){ return r.region || (r.geo? r.geo.cc : null); }
@@ -2675,12 +2789,13 @@ function sourceLabelOf(ip){
   return key;
 }
 function expFieldOn(name){ var el=$("expF-"+name); return !!(el && el.checked); }
-function anyExpField(){ return ["city","speed","lat","colo","src"].some(expFieldOn); }
+function anyExpField(){ return ["city","speed","lat","colo","src","line"].some(expFieldOn); }
 /* 组合备注：按勾选拼 优选 | 国家城市 | 下载 xMB/s | 延迟 | colo | 来源；
    速度/colo 只有反代榜单里有真实数据的 IP 才写，没有就省略这一段，不编造 */
 function composedRemark(r){
   var segs=["优选"];
   if(expFieldOn("city")) segs.push(countryCity(r));
+  if(expFieldOn("line")){ var lp=premiumOfResult(r); if(lp) segs.push(lp.short+" "+lp.asn+" "+lp.line); else { var la=resultAsn(r); if(la) segs.push(la); } }
   if(expFieldOn("speed")){ var v=pxSpeedOf(r.ip); if(typeof v==="number" && isFinite(v)) segs.push("下载 "+mbpsToMBs(v)+"MB/s"); }
   if(expFieldOn("lat")) segs.push(r.avg==null? "—" : (r.avg+"ms"));
   if(expFieldOn("colo")){ var c=pxColoOf(r.ip); if(c) segs.push(c); }
@@ -2710,6 +2825,7 @@ function b64DecodeUtf8(b64){
 }
 function nodeRemark(r){
   var segs=["优选", countryCity(r)];
+  var np=premiumOfResult(r); if(np) segs.push(np.short+" "+np.line+" 优质");
   var v=pxSpeedOf(r.ip);
   if(typeof v==="number" && isFinite(v)) segs.push("下载 "+mbpsToMBs(v)+"MB/s");
   segs.push(r.avg==null? "—" : (r.avg+"ms"));
@@ -2757,11 +2873,12 @@ function exportText(){
     return {text:links.join("\n"), count:list.length, list:list};
   }
   if(fmt==="csv"){
-    var lines=["ip,port,region,region_name,city,latency_ms,download_mbps,colo,source"];
+    var lines=["ip,port,region,region_name,city,latency_ms,download_mbps,colo,source,asn,carrier,line,premium"];
     list.forEach(function(r){
       var v=pxSpeedOf(r.ip);
+      var cp=premiumOfResult(r);
       lines.push([r.ip, port, effCc(r)||"", regionName(effCc(r)), (r.geo? r.geo.city : ""), (r.avg==null? "" : r.avg),
-        (typeof v==="number" && isFinite(v)? v : ""), pxColoOf(r.ip)||"", sourceLabelOf(r.ip)].map(csvCell).join(","));
+        (typeof v==="number" && isFinite(v)? v : ""), pxColoOf(r.ip)||"", sourceLabelOf(r.ip), resultAsn(r)||"", cp? cp.carrier : "", cp? cp.line : "", cp? "yes" : "no"].map(csvCell).join(","));
     });
     return {text:lines.join("\n"), count:list.length, list:list};
   }
@@ -2966,6 +3083,7 @@ document.querySelectorAll("[data-pxsort]").forEach(function(b){
   b.addEventListener("click", function(){ pxSetSort(b.getAttribute("data-pxsort"), true); });
 });
 $("pxTlsToggle").addEventListener("click", function(){ pxOnlyTls=!pxOnlyTls; pxPage=1; saveState(); renderProxy(); });
+$("pxPremiumToggle").addEventListener("click", function(){ pxPremiumOnly=!pxPremiumOnly; pxPage=1; saveState(); renderProxy(); });
 $("pxFetch").addEventListener("click", function(){ pxFetchedOnce=true; fetchProxyBoard(); });
 $("pxTest").addEventListener("click", pxRunLocalTest);
 $("pxCopyAll").addEventListener("click", function(){
@@ -3013,6 +3131,7 @@ $("poolText").addEventListener("input", function(){
 $("sortSeg").querySelectorAll("button").forEach(function(b){
   b.addEventListener("click", function(){ sortMode=b.getAttribute("data-mode"); saveState(); renderRanking(); });
 });
+$("premiumToggle").addEventListener("click", function(){ premiumOnly=!premiumOnly; saveState(); renderRanking(); renderExport(); });
 $("keepPer").addEventListener("change", function(){ syncSettingsInputs(); renderStats(); renderCharts(); renderProgRegions(); renderRanking(); renderRegions(); });
 $("latCap").addEventListener("change", function(){ syncSettingsInputs(); renderStats(); renderRanking(); });
 $("portSel").addEventListener("change", function(){ syncSettingsInputs(); $("expPort").value=this.value; renderExport(); });
@@ -3028,10 +3147,11 @@ $("expPort").addEventListener("change", saveState);
 ["expFormat","expPer","expRemark"].forEach(function(id){ $(id).addEventListener("change", renderExport); });
 $("expMinDl").addEventListener("input", function(){ saveState(); renderExport(); });
 $("expTemplate").addEventListener("input", function(){ saveState(); renderExport(); });
-["city","speed","lat","colo","src"].forEach(function(k){
+["city","speed","lat","colo","src","line"].forEach(function(k){
   $("expF-"+k).addEventListener("change", function(){ saveState(); renderExport(); });
 });
 $("expCap").addEventListener("input", renderExport);
+$("expPremiumOnly").addEventListener("change", function(){ expPremiumOnly=this.checked; saveState(); renderExport(); });
 $("expPort").addEventListener("change", function(){ $("portSel").value=this.value; syncSettingsInputs(); renderExport(); });
 $("btnCopy").addEventListener("click", function(){
   var ex=exportText(); if(ex.needTpl){ toast("先粘贴一条节点链接作模板"); return; }
