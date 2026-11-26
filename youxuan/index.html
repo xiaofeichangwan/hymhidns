@@ -623,7 +623,7 @@
       </section>
       <section class="panel principle">
         <h2>测速原理</h2>
-        <p>点「开始优选」后，测速在你这台手机/电脑的浏览器里跑：对每个候选 IP 发起一次 HTTPS 请求并计时，所以测出来的是你本地网络的真实相对延迟。第一轮按筛选并发快速过一遍；精测名单按地区取前几名再补全局最快的若干个，每 IP 共测 3 次取中位数，并用样本极差算抖动。综合质量分 = 中位延迟 + 抖动 × 0.5。浏览器受证书/SNI 限制读不到逐 IP 的落地节点（colo），地区来自各来源的 #标注；没有标注的 IP 会在优选完成后，自动向第三方 IP 归属库查询归属地（主查 ipwho.is、备用 ipapi.co），查到的在结果行内以国旗加「识别」标记显示，查不到的保持未知地区，识别失败不影响排名和保留名单。这类归属地数据不是 Cloudflare 官方机房数据：国家/地区一级可信度较高，城市只是大致位置，而且 Cloudflare 是任播网络，归属地不等于你实际接入的机房位置，只能作参考。也做不了逐 IP 下载测速，总览的「线路测速」是整条线路经 Cloudflare 官方测速端点的实测下载和上传速度。测速时别开代理/VPN，否则测的是代理线路。这个静态版没有后台，设置、历史和资产保存在本机浏览器的 localStorage 里，刷新或关闭后重新打开会自动恢复（历史只保留最近 8 次）；换设备、换浏览器或清掉浏览器数据就会丢失。</p>
+        <p>点「开始优选」后，测速在你这台手机/电脑的浏览器里跑：对每个候选 IP 发起一次 HTTPS 请求并计时，所以测出来的是你本地网络的真实相对延迟。计时是发起 HTTPS 请求到收到响应或连接失败为止的耗时，只能作相对快慢比较，不是标准 ping。第一轮按筛选并发快速过一遍；精测名单按地区取前几名再补全局最快的若干个，每 IP 共测 3 次取中位数，并用样本极差算抖动。综合质量分 = 中位延迟 + 抖动 × 0.5。浏览器受证书/SNI 限制读不到逐 IP 的落地节点（colo），地区来自各来源的 #标注；没有标注的 IP 会在优选完成后，自动向第三方 IP 归属库查询归属地（主查 ipwho.is、备用 ipapi.co），查到的在结果行内以国旗加「识别」标记显示，查不到的保持未知地区，识别失败不影响排名和保留名单。这类归属地数据不是 Cloudflare 官方机房数据：国家/地区一级可信度较高，城市只是大致位置，而且 Cloudflare 是任播网络，归属地不等于你实际接入的机房位置，只能作参考。也做不了逐 IP 下载测速，总览的「线路测速」是整条线路经 Cloudflare 官方测速端点的实测下载和上传速度。测速时别开代理/VPN，否则测的是代理线路。这个静态版没有后台，设置、历史和资产保存在本机浏览器的 localStorage 里，刷新或关闭后重新打开会自动恢复（历史只保留最近 8 次）；换设备、换浏览器或清掉浏览器数据就会丢失。</p>
       </section>
     </div>
 
@@ -758,12 +758,27 @@ var TAG2REGION = {
 function detectRegion(tag){
   if(!tag) return null;
   var t=String(tag).trim();
-  var m=/#?\s*([A-Za-z]{2})\s*$/.exec(t);
   var up=t.toUpperCase();
   if(TAG2REGION[up]) return TAG2REGION[up];
+  var m=/(?:^|[^A-Za-z])([A-Za-z]{2})\s*$/.exec(t);
   if(m && REGION_NAMES[m[1].toUpperCase()]) return m[1].toUpperCase();
   var keys=Object.keys(TAG2REGION);
-  for(var i=0;i<keys.length;i++){ if(up.indexOf(keys[i].toUpperCase())>=0) return TAG2REGION[keys[i]]; }
+  for(var i=0;i<keys.length;i++){
+    var keyUp=keys[i].toUpperCase();
+    if(/^[A-Z]+$/.test(keyUp)){
+      var start=0, found=false;
+      while(start<=up.length){
+        var idx=up.indexOf(keyUp, start);
+        if(idx<0) break;
+        var beforeOk = idx===0 || !/[A-Z]/.test(up.charAt(idx-1));
+        var afterIdx=idx+keyUp.length;
+        var afterOk = afterIdx>=up.length || !/[A-Z]/.test(up.charAt(afterIdx));
+        if(beforeOk && afterOk){ found=true; break; }
+        start=idx+1;
+      }
+      if(found) return TAG2REGION[keys[i]];
+    } else if(up.indexOf(keyUp)>=0) return TAG2REGION[keys[i]];
+  }
   return null;
 }
 
@@ -939,10 +954,16 @@ function loadState(){
         total:r.total||0, alive:r.alive||0, fc:r.fc||0, top:r.top||0,
         lineDown:(typeof r.lineDown==="number" && isFinite(r.lineDown)? r.lineDown : null),
         snapshot:(Array.isArray(r.snapshot)? r.snapshot : []).map(function(x){
-          if(!x || typeof x!=="object") return x;
-          var y={}; for(var k in x) y[k]=x[k];
-          y.dl=(typeof x.dl==="number" && isFinite(x.dl)? x.dl : null);
-          return y;
+          /* 逐条规范化：老记录字段可能缺失或类型不对，逐项校验后再用，缺字段不报错 */
+          if(!x || typeof x!=="object") return {ip:"", region:null, ok:false, avg:null, samples:[], dl:null, geo:null};
+          var rc=(typeof x.region==="string"? x.region.toUpperCase() : "");
+          return {ip:(typeof x.ip==="string"? x.ip : ""),
+            region:(/^[A-Z]{2}$/.test(rc) && REGION_NAMES[rc]? rc : null),
+            ok:!!x.ok,
+            avg:(typeof x.avg==="number" && isFinite(x.avg)? x.avg : null),
+            samples:(Array.isArray(x.samples)? x.samples.filter(function(n){ return typeof n==="number" && isFinite(n); }) : []),
+            dl:(typeof x.dl==="number" && isFinite(x.dl)? x.dl : null),
+            geo:(x.geo && typeof x.geo==="object"? geoNormalize(x.geo.cc, x.geo.city, x.geo.region, x.geo.org, x.geo.src) : null)};
         })};
     });
   }
@@ -1871,6 +1892,9 @@ function identifyUnknownRegions(list, keptIps){
     saveState();
     renderRanking(); renderHistory();
     log("地区识别完成：查到 "+hitN+" 个，仍未知 "+(targets.length-hitN)+" 个。归属地来自第三方 IP 库，国家级较可信、城市仅供参考，不代表实际接入的 Cloudflare 机房", hitN>0? "ok":"warn");
+  }).catch(function(){
+    /* 兜底：链路万一抛错也要把 geoBusy 置回 false，否则之后每轮识别都会被开头的 if(geoBusy) 挡掉，再也不识别 */
+    geoBusy=false;
   });
 }
 
@@ -2007,7 +2031,7 @@ function fetchProxyBoard(){
     var nodes=[];
     rawItems.forEach(function(it){
       if(!it || typeof it!=="object") return;
-      var ip=pxStr(it.ip); if(!ip) return;
+      var ip=pxStr(it.ip); if(!ip || !isIPv4(ip)) return;
       var port=pxNum(it.port);
       var cc=pxStr(it.cc);
       if(cc && !/^[A-Za-z]{2}$/.test(cc)) cc=null;
@@ -2455,10 +2479,10 @@ function exportKept(){
   var per=+$("expPer").value;
   var capRaw=$("expCap").value.trim();
   var cap = capRaw===""? 0 : Math.max(0, +capRaw||0);
-  var groups=computeGroups(results, exportRegionSel, per, cap, "quality");
+  var groups=computeGroups(results, exportRegionSel, per, cap, sortMode);
   var kept=[];
   groups.forEach(function(g){ kept=kept.concat(g.kept); });
-  return sortAlive(kept, "quality");
+  return sortAlive(kept, sortMode);
 }
 function effCc(r){ return r.region || (r.geo? r.geo.cc : null); }
 function countryCity(r){
@@ -2779,24 +2803,32 @@ $("pxNext").addEventListener("click", function(){
   var pageCount=Math.max(1, Math.ceil(pxFiltered().length/pxPageSize));
   if(pxPage<pageCount){ pxPage++; renderProxy(); }
 });
+var poolEditTimer=null;
 $("poolText").addEventListener("input", function(){
-  var parsed=parsePoolText(this.value);
-  var entries=parsed.entries;
-  if(parsed.cidrs.length) entries=entries.concat(expandCidrList(parsed.cidrs, sampleCount));
-  pool.clear(); srcOfIp.clear();
-  entries.forEach(function(e){
-    if(!pool.has(e.ip)){ pool.set(e.ip,{ip:e.ip, region:e.region||null}); srcOfIp.set(e.ip, "paste"); }
-    else if(e.region && !pool.get(e.ip).region) pool.get(e.ip).region=e.region;
-  });
-  /* 手动编辑后整个池都来自这份文本：其余来源的池中计数清零，粘贴列表记为当前总数 */
-  Object.keys(srcStats).forEach(function(k){ srcStats[k].pool_count=0; });
-  srcStats.paste.pool_count=pool.size;
-  /* 池子已经换了，上一轮的测速结果跟新池对不上，一并清掉，免得排名/导出里混着不存在的 IP */
-  if(!runningNow()){
-    results=[]; runMeta=null; phase="idle"; doneCount=0; totalCount=0;
-    $("progFill").style.width="0%"; $("progPct").textContent="0%"; $("progTitle").textContent="优选进度";
-  }
-  renderSources(); renderRegions(); renderStats(); renderCharts(); renderProgRegions(); renderProgress(); renderRanking(); renderExport();
+  var ta=this;
+  /* 防抖：连续输入时每敲一个键就全量重解析，带 CIDR 还会每次重新随机抽样、池子内容抖动；
+     停下输入 300ms 后再用最新文本解析重建一次 */
+  if(poolEditTimer) clearTimeout(poolEditTimer);
+  poolEditTimer=setTimeout(function(){
+    poolEditTimer=null;
+    var parsed=parsePoolText(ta.value);
+    var entries=parsed.entries;
+    if(parsed.cidrs.length) entries=entries.concat(expandCidrList(parsed.cidrs, sampleCount));
+    pool.clear(); srcOfIp.clear();
+    entries.forEach(function(e){
+      if(!pool.has(e.ip)){ pool.set(e.ip,{ip:e.ip, region:e.region||null}); srcOfIp.set(e.ip, "paste"); }
+      else if(e.region && !pool.get(e.ip).region) pool.get(e.ip).region=e.region;
+    });
+    /* 手动编辑后整个池都来自这份文本：其余来源的池中计数清零，粘贴列表记为当前总数 */
+    Object.keys(srcStats).forEach(function(k){ srcStats[k].pool_count=0; });
+    srcStats.paste.pool_count=pool.size;
+    /* 池子已经换了，上一轮的测速结果跟新池对不上，一并清掉，免得排名/导出里混着不存在的 IP */
+    if(!runningNow()){
+      results=[]; runMeta=null; phase="idle"; doneCount=0; totalCount=0;
+      $("progFill").style.width="0%"; $("progPct").textContent="0%"; $("progTitle").textContent="优选进度";
+    }
+    renderSources(); renderRegions(); renderStats(); renderCharts(); renderProgRegions(); renderProgress(); renderRanking(); renderExport();
+  }, 300);
 });
 $("sortSeg").querySelectorAll("button").forEach(function(b){
   b.addEventListener("click", function(){ sortMode=b.getAttribute("data-mode"); saveState(); renderRanking(); });
